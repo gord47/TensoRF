@@ -1,4 +1,3 @@
-
 import os
 from tqdm.auto import tqdm
 from opt import config_parser
@@ -14,6 +13,9 @@ import datetime
 from dataLoader import dataset_dict
 import sys
 
+# Import PyTorch profiling modules
+import torch.profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -71,20 +73,87 @@ def render_test(args):
     if args.render_train:
         os.makedirs(f'{logfolder}/imgs_train_all', exist_ok=True)
         train_dataset = dataset(args.datadir, split='train', downsample=args.downsample_train, is_stack=True)
-        PSNRs_test = evaluation(train_dataset,tensorf, args, renderer, f'{logfolder}/imgs_train_all/',
-                                N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
+        
+        # Use automatic profiler context scope for render loop
+        with torch.profiler.profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(f'{logfolder}/profiling/render_train'),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True
+        ) as prof:
+            PSNRs_test = evaluation(train_dataset,tensorf, args, renderer, f'{logfolder}/imgs_train_all/',
+                                    N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
+            
+        # Print profiling results
+        print(f"Render Train Loop Profiling Results:")
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=30))
+        print("\nRender Train Loop CUDA Profiling Results:")
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
+        
+        # Save profiling results to files
+        with open(f'{logfolder}/profiling/render_train_cpu_profile.txt', 'w') as f:
+            f.write(prof.key_averages().table(sort_by="cpu_time_total", row_limit=30))
+        with open(f'{logfolder}/profiling/render_train_cuda_profile.txt', 'w') as f:
+            f.write(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
+            
         print(f'======> {args.expname} train all psnr: {np.mean(PSNRs_test)} <========================')
 
     if args.render_test:
         os.makedirs(f'{logfolder}/{args.expname}/imgs_test_all', exist_ok=True)
-        evaluation(test_dataset,tensorf, args, renderer, f'{logfolder}/{args.expname}/imgs_test_all/',
-                                N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
+        
+        # Use automatic profiler context scope for render loop
+        with torch.profiler.profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(f'{logfolder}/profiling/render_test'),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True
+        ) as prof:
+            evaluation(test_dataset,tensorf, args, renderer, f'{logfolder}/{args.expname}/imgs_test_all/',
+                                    N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
+        
+        # Print profiling results
+        print(f"Render Test Loop Profiling Results:")
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=30))
+        print("\nRender Test Loop CUDA Profiling Results:")
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
+        
+        # Save profiling results to files
+        with open(f'{logfolder}/profiling/render_test_cpu_profile.txt', 'w') as f:
+            f.write(prof.key_averages().table(sort_by="cpu_time_total", row_limit=30))
+        with open(f'{logfolder}/profiling/render_test_cuda_profile.txt', 'w') as f:
+            f.write(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
 
     if args.render_path:
         c2ws = test_dataset.render_path
         os.makedirs(f'{logfolder}/{args.expname}/imgs_path_all', exist_ok=True)
-        evaluation_path(test_dataset,tensorf, c2ws, renderer, f'{logfolder}/{args.expname}/imgs_path_all/',
-                                N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
+        
+        # Use automatic profiler context scope for render path
+        with torch.profiler.profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(f'{logfolder}/profiling/render_path'),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True
+        ) as prof:
+            evaluation_path(test_dataset,tensorf, c2ws, renderer, f'{logfolder}/{args.expname}/imgs_path_all/',
+                                    N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
+        
+        # Print profiling results
+        print(f"Render Path Loop Profiling Results:")
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=30))
+        print("\nRender Path Loop CUDA Profiling Results:")
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
+        
+        # Save profiling results to files
+        with open(f'{logfolder}/profiling/render_path_cpu_profile.txt', 'w') as f:
+            f.write(prof.key_averages().table(sort_by="cpu_time_total", row_limit=30))
+        with open(f'{logfolder}/profiling/render_path_cuda_profile.txt', 'w') as f:
+            f.write(prof.key_averages().table(sort_by="cuda_time_total", row_limit=30))
 
 def reconstruction(args):
 
@@ -114,6 +183,7 @@ def reconstruction(args):
     os.makedirs(f'{logfolder}/imgs_vis', exist_ok=True)
     os.makedirs(f'{logfolder}/imgs_rgba', exist_ok=True)
     os.makedirs(f'{logfolder}/rgba', exist_ok=True)
+    os.makedirs(f'{logfolder}/profiling', exist_ok=True)  # Create directory for profiling results
     summary_writer = SummaryWriter(logfolder)
 
 
@@ -171,52 +241,74 @@ def reconstruction(args):
     tvreg = TVLoss()
     print(f"initial TV_weight density: {TV_weight_density} appearance: {TV_weight_app}")
 
+    # Initialize PyTorch profiler for training loop
+    profiler = torch.profiler.profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        schedule=torch.profiler.schedule(wait=1, warmup=1, active=args.n_iters),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(f'{logfolder}/profiling/train'),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True
+    )
+    
+    # Start the profiler
+    profiler.start()
 
     pbar = tqdm(range(args.n_iters), miniters=args.progress_refresh_rate, file=sys.stdout)
     for iteration in pbar:
         ray_idx = trainingSampler.nextids()
         rays_train, rgb_train = allrays[ray_idx], allrgbs[ray_idx].to(device)
-        #rgb_map, alphas_map, depth_map, weights, uncertainty
-        rgb_map, alphas_map, depth_map, weights, uncertainty = renderer(rays_train, tensorf, chunk=args.batch_size,
-                                N_samples=nSamples, white_bg = white_bg, ndc_ray=ndc_ray, device=device, is_train=True)
-        loss = torch.mean((rgb_map - rgb_train) ** 2)
-
-
-        # loss
-        total_loss = loss
-        if Ortho_reg_weight > 0:
-            loss_reg = tensorf.vector_comp_diffs()
-            total_loss += Ortho_reg_weight*loss_reg
-            summary_writer.add_scalar('train/reg', loss_reg.detach().item(), global_step=iteration)
-        if L1_reg_weight > 0:
-            loss_reg_L1 = tensorf.density_L1()
-            total_loss += L1_reg_weight*loss_reg_L1
-            summary_writer.add_scalar('train/reg_l1', loss_reg_L1.detach().item(), global_step=iteration)
-
-        if TV_weight_density>0:
-            TV_weight_density *= lr_factor
-            loss_tv = tensorf.TV_loss_density(tvreg) * TV_weight_density
-            total_loss = total_loss + loss_tv
-            summary_writer.add_scalar('train/reg_tv_density', loss_tv.detach().item(), global_step=iteration)
-        if TV_weight_app>0:
-            TV_weight_app *= lr_factor
-            loss_tv = tensorf.TV_loss_app(tvreg)*TV_weight_app
-            total_loss = total_loss + loss_tv
-            summary_writer.add_scalar('train/reg_tv_app', loss_tv.detach().item(), global_step=iteration)
-
-        optimizer.zero_grad()
-        total_loss.backward()
-
-        optimizer.step()
-        loss = loss.detach().item()
         
-        PSNRs.append(-10.0 * np.log(loss) / np.log(10.0))
-        summary_writer.add_scalar('train/PSNR', PSNRs[-1], global_step=iteration)
-        summary_writer.add_scalar('train/mse', loss, global_step=iteration)
+        # Forward pass with profiling
+        with record_function("forward_pass"):
+            #rgb_map, alphas_map, depth_map, weights, uncertainty
+            rgb_map, alphas_map, depth_map, weights, uncertainty = renderer(rays_train, tensorf, chunk=args.batch_size,
+                                    N_samples=nSamples, white_bg = white_bg, ndc_ray=ndc_ray, device=device, is_train=True)
+        
+        # Loss calculation with profiling
+        with record_function("loss_calc"):
+            loss = torch.mean((rgb_map - rgb_train) ** 2)
+            # loss
+            total_loss = loss
+            if Ortho_reg_weight > 0:
+                loss_reg = tensorf.vector_comp_diffs()
+                total_loss += Ortho_reg_weight*loss_reg
+                summary_writer.add_scalar('train/reg', loss_reg.detach().item(), global_step=iteration)
+            if L1_reg_weight > 0:
+                loss_reg_L1 = tensorf.density_L1()
+                total_loss += L1_reg_weight*loss_reg_L1
+                summary_writer.add_scalar('train/reg_l1', loss_reg_L1.detach().item(), global_step=iteration)
 
+            if TV_weight_density>0:
+                TV_weight_density *= lr_factor
+                loss_tv = tensorf.TV_loss_density(tvreg) * TV_weight_density
+                total_loss = total_loss + loss_tv
+                summary_writer.add_scalar('train/reg_tv_density', loss_tv.detach().item(), global_step=iteration)
+            if TV_weight_app>0:
+                TV_weight_app *= lr_factor
+                loss_tv = tensorf.TV_loss_app(tvreg)*TV_weight_app
+                total_loss = total_loss + loss_tv
+                summary_writer.add_scalar('train/reg_tv_app', loss_tv.detach().item(), global_step=iteration)
 
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = param_group['lr'] * lr_factor
+        # Backward pass with profiling
+        with record_function("backward_pass"):
+            optimizer.zero_grad()
+            total_loss.backward()
+
+        # Optimization step with profiling
+        with record_function("optimization"):
+            optimizer.step()
+            loss = loss.detach().item()
+            
+            PSNRs.append(-10.0 * np.log(loss) / np.log(10.0))
+            summary_writer.add_scalar('train/PSNR', PSNRs[-1], global_step=iteration)
+            summary_writer.add_scalar('train/mse', loss, global_step=iteration)
+
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] * lr_factor
+
+        # Step the profiler
+        profiler.step()
 
         # Print the current values of the losses.
         if iteration % args.progress_refresh_rate == 0:
@@ -268,6 +360,24 @@ def reconstruction(args):
             grad_vars = tensorf.get_optparam_groups(args.lr_init*lr_scale, args.lr_basis*lr_scale)
             optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
 
+    # Stop the profiler and print results
+    profiler.stop()
+    
+    # Print and save profiling results for training loop
+    print("Training Loop Profiling Results (CPU time avg):")
+    cpu_table = profiler.key_averages().table(sort_by="cpu_time_avg", row_limit=30)
+    print(cpu_table)
+    
+    print("\nTraining Loop Profiling Results (CUDA time avg):")
+    cuda_table = profiler.key_averages().table(sort_by="cuda_time_avg", row_limit=30)
+    print(cuda_table)
+    
+    # Save profiling results to files
+    with open(f'{logfolder}/profiling/train_cpu_profile.txt', 'w') as f:
+        f.write(cpu_table)
+    with open(f'{logfolder}/profiling/train_cuda_profile.txt', 'w') as f:
+        f.write(cuda_table)
+
     tensorf.save(f'{logfolder}/{args.expname}.th')
 
 
@@ -310,4 +420,3 @@ if __name__ == '__main__':
         render_test(args)
     else:
         reconstruction(args)
-
