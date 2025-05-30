@@ -38,12 +38,13 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
     img_eval_interval = 1 if N_vis < 0 else max(test_dataset.all_rays.shape[0] // N_vis,1)
     idxs = list(range(0, test_dataset.all_rays.shape[0], img_eval_interval))
     for idx, samples in tqdm(enumerate(test_dataset.all_rays[0::img_eval_interval]), file=sys.stdout):
-
+        nvtx.range_push(f"Eval idx {idx}")
         W, H = test_dataset.img_wh
         rays = samples.view(-1,samples.shape[-1])
-
+        nvtx.range_push("Render rays")
         rgb_map, _, depth_map, _, _ = renderer(rays, tensorf, chunk=4096, N_samples=N_samples,
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
+        nvtx.range_pop()
         rgb_map = rgb_map.clamp(0.0, 1.0)
 
         rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
@@ -55,12 +56,14 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
             PSNRs.append(-10.0 * np.log(loss.item()) / np.log(10.0))
 
             if compute_extra_metrics:
+                nvtx.range_push("Compute metrics")
                 ssim = rgb_ssim(rgb_map, gt_rgb, 1)
                 l_a = rgb_lpips(gt_rgb.numpy(), rgb_map.numpy(), 'alex', tensorf.device)
                 l_v = rgb_lpips(gt_rgb.numpy(), rgb_map.numpy(), 'vgg', tensorf.device)
                 ssims.append(ssim)
                 l_alex.append(l_a)
                 l_vgg.append(l_v)
+                nvtx.range_pop()
 
         rgb_map = (rgb_map.numpy() * 255).astype('uint8')
         # rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
@@ -70,6 +73,7 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
             imageio.imwrite(f'{savePath}/{prtx}{idx:03d}.png', rgb_map)
             rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
             imageio.imwrite(f'{savePath}/rgbd/{prtx}{idx:03d}.png', rgb_map)
+        nvtx.range_pop()
 
     imageio.mimwrite(f'{savePath}/{prtx}video.mp4', np.stack(rgb_maps), fps=30, quality=10)
     imageio.mimwrite(f'{savePath}/{prtx}depthvideo.mp4', np.stack(depth_maps), fps=30, quality=10)
