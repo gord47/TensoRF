@@ -12,12 +12,16 @@ def OctreeRender_trilinear_fast(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray
     rgbs, alphas, depth_maps, weights, uncertainties = [], [], [], [], []
     N_rays_all = rays.shape[0]
     for chunk_idx in range(N_rays_all // chunk + int(N_rays_all % chunk > 0)):
+        nvtx.range_push(f"Process chunk {chunk_idx}")
         rays_chunk = rays[chunk_idx * chunk:(chunk_idx + 1) * chunk].to(device)
     
+        nvtx.range_push("TensorRF forward")
         rgb_map, depth_map = tensorf(rays_chunk, is_train=is_train, white_bg=white_bg, ndc_ray=ndc_ray, N_samples=N_samples)
+        nvtx.range_pop()  # TensorRF forward
 
         rgbs.append(rgb_map)
         depth_maps.append(depth_map)
+        nvtx.range_pop()  # Process chunk
     nvtx.range_pop()
     return torch.cat(rgbs), None, torch.cat(depth_maps), None, None
 
@@ -94,6 +98,7 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
 @torch.no_grad()
 def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
                     white_bg=False, ndc_ray=False, compute_extra_metrics=True, device='cuda'):
+    nvtx.range_push("evaluation_path")
     PSNRs, rgb_maps, depth_maps = [], [], []
     ssims,l_alex,l_vgg=[],[],[]
     os.makedirs(savePath, exist_ok=True)
@@ -106,17 +111,22 @@ def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5
 
     near_far = test_dataset.near_far
     for idx, c2w in tqdm(enumerate(c2ws)):
-
+        nvtx.range_push(f"Render path frame {idx}")
+        
         W, H = test_dataset.img_wh
 
         c2w = torch.FloatTensor(c2w)
+        nvtx.range_push("Get rays")
         rays_o, rays_d = get_rays(test_dataset.directions, c2w)  # both (h*w, 3)
         if ndc_ray:
             rays_o, rays_d = ndc_rays_blender(H, W, test_dataset.focal[0], 1.0, rays_o, rays_d)
         rays = torch.cat([rays_o, rays_d], 1)  # (h*w, 6)
+        nvtx.range_pop()
 
+        nvtx.range_push("Render view")
         rgb_map, _, depth_map, _, _ = renderer(rays, tensorf, chunk=8192, N_samples=N_samples,
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
+        nvtx.range_pop()
         rgb_map = rgb_map.clamp(0.0, 1.0)
 
         rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()

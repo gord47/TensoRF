@@ -39,15 +39,22 @@ class SimpleSampler:
 
 @torch.no_grad()
 def export_mesh(args):
-
+    nvtx.range_push("export_mesh")
+    
+    nvtx.range_push("Load checkpoint")
     ckpt = torch.load(args.ckpt, map_location=device)
     kwargs = ckpt['kwargs']
     kwargs.update({'device': device})
     tensorf = eval(args.model_name)(**kwargs)
     tensorf.load(ckpt)
+    nvtx.range_pop()  # Load checkpoint
 
+    nvtx.range_push("Generate mesh")
     alpha,_ = tensorf.getDenseAlpha()
     convert_sdf_samples_to_ply(alpha.cpu(), f'{args.ckpt[:-3]}.ply',bbox=tensorf.aabb.cpu(), level=0.005)
+    nvtx.range_pop()  # Generate mesh
+    
+    nvtx.range_pop()  # export_mesh
 
 
 @torch.no_grad()
@@ -250,6 +257,7 @@ def reconstruction(args):
 
 
         if iteration in update_AlphaMask_list:
+            nvtx.range_push("Update alpha mask")
 
             if reso_cur[0] * reso_cur[1] * reso_cur[2]<256**3:# update volume resolution
                 reso_mask = reso_cur
@@ -259,6 +267,7 @@ def reconstruction(args):
                 # tensorVM.alphaMask = None
                 L1_reg_weight = args.L1_weight_rest
                 print("continuing L1_reg_weight", L1_reg_weight)
+            nvtx.range_pop()  # Update alpha mask
 
 
             if not args.ndc_ray and iteration == update_AlphaMask_list[1]:
@@ -268,6 +277,7 @@ def reconstruction(args):
 
 
         if iteration in upsamp_list:
+            nvtx.range_push("Upsample volume grid")
             n_voxels = N_voxel_list.pop(0)
             reso_cur = N_to_reso(n_voxels, tensorf.aabb)
             nSamples = min(args.nSamples, cal_n_samples(reso_cur,args.step_ratio))
@@ -280,9 +290,12 @@ def reconstruction(args):
                 lr_scale = args.lr_decay_target_ratio ** (iteration / args.n_iters)
             grad_vars = tensorf.get_optparam_groups(args.lr_init*lr_scale, args.lr_basis*lr_scale)
             optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
+            nvtx.range_pop()  # Upsample volume grid
         nvtx.range_pop()
 
+    nvtx.range_push("Save model")
     tensorf.save(f'{logfolder}/{args.expname}.th')
+    nvtx.range_pop()  # Save model
 
 
     if args.render_train:

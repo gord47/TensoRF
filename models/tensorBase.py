@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from .sh import eval_sh_bases
 import numpy as np
 import time
+import torch.cuda.nvtx as nvtx
 
 
 def positional_encoding(positions, freqs):
@@ -407,8 +408,10 @@ class TensorBase(torch.nn.Module):
 
 
     def forward(self, rays_chunk, white_bg=True, is_train=False, ndc_ray=False, N_samples=-1):
+        nvtx.range_push("TensorRF_forward")
 
         # sample points
+        nvtx.range_push("Sample points")
         viewdirs = rays_chunk[:, 3:6]
         if ndc_ray:
             xyz_sampled, z_vals, ray_valid = self.sample_ray_ndc(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples)
@@ -419,6 +422,7 @@ class TensorBase(torch.nn.Module):
         else:
             xyz_sampled, z_vals, ray_valid = self.sample_ray(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples)
             dists = torch.cat((z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1)
+        nvtx.range_pop()  # Sample points
         viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape)
         
         if self.alphaMask is not None:
@@ -428,16 +432,18 @@ class TensorBase(torch.nn.Module):
             ray_invalid[ray_valid] |= (~alpha_mask)
             ray_valid = ~ray_invalid
 
-
+        
         sigma = torch.zeros(xyz_sampled.shape[:-1], device=xyz_sampled.device)
         rgb = torch.zeros((*xyz_sampled.shape[:2], 3), device=xyz_sampled.device)
 
         if ray_valid.any():
+            nvtx.range_push("Compute density")
             xyz_sampled = self.normalize_coord(xyz_sampled)
             sigma_feature = self.compute_densityfeature(xyz_sampled[ray_valid])
 
             validsigma = self.feature2density(sigma_feature)
             sigma[ray_valid] = validsigma
+            nvtx.range_pop()  # Compute density
 
 
         alpha, weight, bg_weight = raw2alpha(sigma, dists * self.distance_scale)
@@ -445,10 +451,13 @@ class TensorBase(torch.nn.Module):
         app_mask = weight > self.rayMarch_weight_thres
 
         if app_mask.any():
+            nvtx.range_push("Compute color")
             app_features = self.compute_appfeature(xyz_sampled[app_mask])
             valid_rgbs = self.renderModule(xyz_sampled[app_mask], viewdirs[app_mask], app_features)
             rgb[app_mask] = valid_rgbs
+            nvtx.range_pop()  # Compute color
 
+        nvtx.range_push("Composite")
         acc_map = torch.sum(weight, -1)
         rgb_map = torch.sum(weight[..., None] * rgb, -2)
 
@@ -461,6 +470,8 @@ class TensorBase(torch.nn.Module):
         with torch.no_grad():
             depth_map = torch.sum(weight * z_vals, -1)
             depth_map = depth_map + (1. - acc_map) * rays_chunk[..., -1]
+        nvtx.range_pop()  # Composite
 
+        nvtx.range_pop()  # TensorRF_forward
         return rgb_map, depth_map # rgb, sigma, alpha, weight, bg_weight
 

@@ -16,6 +16,7 @@ N_vis = 5
 vis_every = 10000
 
 render_test = 1
+render_only = 1
 
 n_lamb_sigma = [16,16,16]
 n_lamb_sh = [48,48,48]
