@@ -10,3 +10,4 @@ kornia
 lpips
 tensorboard
 plyfile
+ninja
