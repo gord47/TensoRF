@@ -3,7 +3,7 @@ from torch.utils.cpp_extension import load_inline
 
 _src_dir = os.path.dirname(__file__)
 
-with open(os.path.join(_src_dir, "fused_plane_line_kernel.cu"), "r") as f:
+with open(os.path.join(_src_dir, "fused_plane_line.cu"), "r") as f:
     cuda_code = f.read()
 
 fused_plane_line = load_inline(
