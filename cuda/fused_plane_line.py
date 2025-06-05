@@ -30,4 +30,5 @@ fused_plane_line = load(
     ],
     verbose=True
 )
+forward = fused_plane_line.forward
 # __all__ = ["fused_plane_line
