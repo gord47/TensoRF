@@ -1,13 +1,15 @@
 #include <torch/extension.h>
+#include <vector>
 
-// Declare the CUDA function
-torch::Tensor fused_plane_line_forward_cuda(torch::Tensor input);
+// Match the function signature defined in fused_plane_line.cu
+std::vector<at::Tensor> fused_plane_line_forward_cuda(
+    at::Tensor plane, at::Tensor line1, at::Tensor line2, at::Tensor line3);
 
-torch::Tensor fused_plane_line_forward(torch::Tensor input) {
-    return fused_plane_line_forward_cuda(input);
+std::vector<at::Tensor> fused_plane_line_forward(
+    at::Tensor plane, at::Tensor line1, at::Tensor line2, at::Tensor line3) {
+    return fused_plane_line_forward_cuda(plane, line1, line2, line3);
 }
 
-// PyTorch binding
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("forward", &fused_plane_line_forward, "Fused plane line forward (CUDA)");
+    m.def("forward", &fused_plane_line_forward, "Fused Plane Line forward (CUDA)");
 }
