@@ -56,7 +56,7 @@ __global__ void fused_plane_line_kernel(
     out[i] = acc;
 }
 
-std::vector<torch::Tensor> fused_plane_line_forward(
+std::vector<torch::Tensor> fused_plane_line_forward_cuda(
     torch::Tensor planes,
     torch::Tensor lines,
     torch::Tensor coord_plane,
