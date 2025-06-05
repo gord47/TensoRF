@@ -16,6 +16,11 @@ fused_plane_line = load_inline(
     verbose=False,
 )
 '''
+if os.name == 'nt':
+    torch_lib_dir = os.path.join(os.path.dirname(torch.__file__), 'lib')
+    os.add_dll_directory(torch_lib_dir)
+    os.add_dll_directory("C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4\\bin")
+
 fused_plane_line = load(
     name="fused_plane_line",
     sources=[
