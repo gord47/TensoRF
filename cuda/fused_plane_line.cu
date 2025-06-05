@@ -81,7 +81,3 @@ std::vector<torch::Tensor> fused_plane_line_forward(
 
     return {output};
 }
-
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("fused_plane_line_forward", &fused_plane_line_forward, "Fused Plane × Line forward (CUDA)");
-}
