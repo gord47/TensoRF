@@ -1,13 +1,19 @@
 #include <torch/extension.h>
 #include <vector>
 
-// Match the function signature defined in fused_plane_line.cu
-std::vector<at::Tensor> fused_plane_line_forward_cuda(
-    at::Tensor plane, at::Tensor line1, at::Tensor line2, at::Tensor line3);
+// Fix the declaration here to match fused_plane_line.cu
+std::vector<torch::Tensor> fused_plane_line_forward_cuda(
+    torch::Tensor planes,
+    torch::Tensor lines,
+    torch::Tensor coord_plane,
+    torch::Tensor coord_line);
 
-std::vector<at::Tensor> fused_plane_line_forward(
-    at::Tensor plane, at::Tensor line1, at::Tensor line2, at::Tensor line3) {
-    return fused_plane_line_forward_cuda(plane, line1, line2, line3);
+std::vector<torch::Tensor> fused_plane_line_forward(
+    torch::Tensor planes,
+    torch::Tensor lines,
+    torch::Tensor coord_plane,
+    torch::Tensor coord_line) {
+    return fused_plane_line_forward_cuda(planes, lines, coord_plane, coord_line);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
