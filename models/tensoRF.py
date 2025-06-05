@@ -232,33 +232,42 @@ class TensorVMSplit(TensorBase):
         nvtx.range_push("compute_densityfeature")
         B = xyz_sampled.shape[0]
         device = xyz_sampled.device
-        C = self.density_plane[0].shape[1]
-
-        # Prepare coordinate stacks: (3, B, 2)
-        coord_plane = torch.stack([
-            xyz_sampled[..., self.matMode[i]] for i in range(3)
-        ], dim=0)  # shape: (3, B, 2)
-
-        coord_line = torch.stack([
-            xyz_sampled[..., self.vecMode[i]] for i in range(3)
-        ], dim=0)  # shape: (3, B)
-
-        coord_plane = coord_plane.detach().contiguous().to(device)
-        coord_line = coord_line.detach().contiguous().to(device)
-
-        # Prepare planes and lines as (3, C, H, W), (3, C, L)
-        planes = torch.stack([p.squeeze(0) for p in self.density_plane], dim=0)  # (3, C, H, W)
-        lines = torch.stack([l.squeeze(0).squeeze(-1) for l in self.density_line], dim=0)  # (3, C, L)
-
-        planes = planes.contiguous()
-        lines = lines.contiguous()
-
-        # Call CUDA kernel
-        nvtx.range_push("fused_plane_line_forward")
-        output = fused_plane_line.forward(planes, lines, coord_plane, coord_line)[0]
+        
+        # Prepare coordinates for each component
+        coord_planes = []
+        coord_lines = []
+        planes = []
+        lines = []
+        
+        for i in range(3):
+            # Get coordinates for the current axis
+            coord_plane = xyz_sampled[..., self.matMode[i]].detach().contiguous().to(device)
+            coord_line = xyz_sampled[..., self.vecMode[i]].detach().contiguous().to(device)
+            
+            # Format plane coordinates: [N, 2]
+            coord_planes.append(coord_plane)
+            
+            # Format line coordinates: [N]
+            coord_lines.append(coord_line)
+            
+            # Get the current plane and line
+            plane = self.density_plane[i].contiguous()  # [1, C, H, W]
+            line = self.density_line[i].contiguous()    # [1, C, L, 1]
+            
+            planes.append(plane)
+            lines.append(line)
+        
+        # Stack coordinates into the format expected by our custom forward function
+        coords_plane_stacked = torch.stack(coord_planes, dim=0)  # [3, N, 2]
+        coords_line_stacked = torch.stack(coord_lines, dim=0)    # [3, N]
+        
+        # Use our custom forward function that handles tensors of different sizes
+        nvtx.range_push("fused_plane_line_split_forward")
+        sigma_feature = fused_plane_line.forward_split(planes, lines, coords_plane_stacked, coords_line_stacked)
         nvtx.range_pop()
+        
         nvtx.range_pop()
-        return output
+        return sigma_feature
 
     def compute_appfeature(self, xyz_sampled):
         nvtx.range_push("compute_appfeature")

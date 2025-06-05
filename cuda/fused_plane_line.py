@@ -27,8 +27,40 @@ fused_plane_line = load(
     sources=[
         os.path.join(_src_dir, "fused_plane_line.cpp"),
         os.path.join(_src_dir, "fused_plane_line.cu"),
+        os.path.join(_src_dir, "fused_plane_line_single.cu"),
     ],
     verbose=True
 )
 forward = fused_plane_line.forward
-# __all__ = ["fused_plane_line
+forward_single = fused_plane_line.forward_single
+
+def forward_split(planes, lines, coords_plane, coords_line):
+    """
+    Process plane-line computation with tensors of different sizes by handling each axis separately.
+    
+    Args:
+        planes: List of 3 tensors of shape [1, C, H_i, W_i] for each axis
+        lines: List of 3 tensors of shape [1, C, L_i, 1] for each axis
+        coords_plane: Tensor of shape [3, N, 2] containing plane coordinates
+        coords_line: Tensor of shape [3, N] containing line coordinates
+        
+    Returns:
+        Tensor of shape [N] containing the output features
+    """
+    device = planes[0].device
+    N = coords_plane.size(1)
+    
+    # Initialize output tensor
+    output = torch.zeros(N, device=device)
+    
+    # Process each axis separately
+    for i in range(3):
+        plane_i = planes[i]
+        line_i = lines[i]
+        coord_plane_i = coords_plane[i]  # [N, 2]
+        coord_line_i = coords_line[i]    # [N]
+        
+        # Call the CUDA kernel for this component
+        forward_single(plane_i, line_i, coord_plane_i, coord_line_i, output)
+    
+    return output
