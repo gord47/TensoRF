@@ -1,4 +1,5 @@
 import os
+import torch
 from torch.utils.cpp_extension import load
 
 _src_dir = os.path.dirname(os.path.abspath(__file__))
