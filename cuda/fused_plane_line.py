@@ -19,8 +19,8 @@ fused_plane_line = load_inline(
 fused_plane_line = load(
     name="fused_plane_line",
     sources=[
-        os.path.join(src_dir, "fused_plane_line.cpp"),
-        os.path.join(src_dir, "fused_plane_line.cu"),
+        os.path.join(_src_dir, "fused_plane_line.cpp"),
+        os.path.join(_src_dir, "fused_plane_line.cu"),
     ],
     verbose=True
 )
