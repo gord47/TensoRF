@@ -2,3 +2,5 @@ data
 *.png
 *.pcy
 __pycache__
+log
+*.nsys-rep
