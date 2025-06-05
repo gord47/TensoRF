@@ -255,7 +255,7 @@ class TensorVMSplit(TensorBase):
 
         # Call CUDA kernel
         nvtx.range_push("fused_plane_line_forward")
-        output = fused_plane_line.fused_plane_line_forward(planes, lines, coord_plane, coord_line)[0]
+        output = fused_plane_line.forward(planes, lines, coord_plane, coord_line)[0]
         nvtx.range_pop()
         nvtx.range_pop()
         return output
