@@ -2,10 +2,14 @@
 #include <cuda_runtime.h>
 #include <vector>
 
-
 __device__ float bilinear_interp(const float* plane, float x, float y, int H, int W) {
-    float fx = x * (W - 1);
-    float fy = y * (H - 1);
+    // grid_sample with align_corners=True: x, y ∈ [-1, 1] → index in [0, size - 1]
+    float fx = (x + 1.f) * 0.5f * (W - 1);
+    float fy = (y + 1.f) * 0.5f * (H - 1);
+
+    fx = fminf(fmaxf(fx, 0.0f), W - 1.0f);
+    fy = fminf(fmaxf(fy, 0.0f), H - 1.0f);
+
     int x0 = floorf(fx), y0 = floorf(fy);
     int x1 = min(x0 + 1, W - 1), y1 = min(y0 + 1, H - 1);
     float dx = fx - x0, dy = fy - y0;
@@ -19,7 +23,9 @@ __device__ float bilinear_interp(const float* plane, float x, float y, int H, in
 }
 
 __device__ float linear_interp(const float* line, float z, int L) {
-    float fz = z * (L - 1);
+    float fz = (z + 1.f) * 0.5f * (L - 1);
+    fz = fminf(fmaxf(fz, 0.0f), L - 1.0f);
+
     int z0 = floorf(fz), z1 = min(z0 + 1, L - 1);
     float dz = fz - z0;
     return line[z0] * (1 - dz) + line[z1] * dz;
@@ -28,8 +34,8 @@ __device__ float linear_interp(const float* line, float z, int L) {
 __global__ void fused_plane_line_kernel(
     const float* __restrict__ planes,
     const float* __restrict__ lines,
-    const float* __restrict__ coord_plane,
-    const float* __restrict__ coord_line,
+    const float* __restrict__ coord_plane, // [3, N, 2] flattened
+    const float* __restrict__ coord_line,  // [3, N] flattened
     float* __restrict__ out,
     int C, int H, int W, int L, int N
 ) {
@@ -37,36 +43,28 @@ __global__ void fused_plane_line_kernel(
     if (i >= N) return;
 
     float acc = 0.0f;
-
     for (int axis = 0; axis < 3; ++axis) {
         for (int c = 0; c < C; ++c) {
             const float* plane = planes + axis * C * H * W + c * H * W;
-            const float* line = lines + axis * C * L + c * L;
+            const float* line  = lines + axis * C * L + c * L;
 
-            // Normalize [-1,1] to [0,1] once
-            float x = fminf(fmaxf(coord_plane[axis * N * 2 + i * 2 + 0] * 0.5f + 0.5f, 0.0f), 1.0f);
-            float y = fminf(fmaxf(coord_plane[axis * N * 2 + i * 2 + 1] * 0.5f + 0.5f, 0.0f), 1.0f);
-            float z = fminf(fmaxf(coord_line[axis * N + i] * 0.5f + 0.5f, 0.0f), 1.0f);
+            float x = coord_plane[(axis * N + i) * 2 + 0];
+            float y = coord_plane[(axis * N + i) * 2 + 1];
+            float z = coord_line[axis * N + i];
 
             float p = bilinear_interp(plane, x, y, H, W);
             float l = linear_interp(line, z, L);
             acc += p * l;
-
-            // Uncomment this to debug
-            if (i < 3 && c == 0)
-                printf("i=%d axis=%d c=%d x=%.3f y=%.3f z=%.3f p=%.6f l=%.6f acc=%.6f\n",
-                       i, axis, c, x, y, z, p, l, acc);
         }
     }
-
     out[i] = acc;
 }
 
 std::vector<torch::Tensor> fused_plane_line_forward_cuda(
-    torch::Tensor planes,
-    torch::Tensor lines,
-    torch::Tensor coord_plane,
-    torch::Tensor coord_line
+    torch::Tensor planes,       // [3, C, H, W]
+    torch::Tensor lines,        // [3, C, L]
+    torch::Tensor coord_plane,  // [3, N, 2]
+    torch::Tensor coord_line    // [3, N]
 ) {
     int C = planes.size(1), H = planes.size(2), W = planes.size(3);
     int L = lines.size(2), N = coord_plane.size(1);
