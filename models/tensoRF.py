@@ -210,13 +210,14 @@ class TensorVMSplit(TensorBase):
         coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
 
         sigma_feature = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
+        nvtx.range_push("compute_densityfeature")
         for idx_plane in range(len(self.density_plane)):
             plane_coef_point = F.grid_sample(self.density_plane[idx_plane], coordinate_plane[[idx_plane]],
                                                 align_corners=True).view(-1, *xyz_sampled.shape[:1])
             line_coef_point = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]],
                                             align_corners=True).view(-1, *xyz_sampled.shape[:1])
             sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
-
+        nvtx.range_pop()
         return sigma_feature
 
 
