@@ -230,34 +230,40 @@ class TensorVMSplit(TensorBase):
 
     def compute_densityfeature(self, xyz_sampled):
         nvtx.range_push("compute_densityfeature")
+
         B = xyz_sampled.shape[0]
         device = xyz_sampled.device
         C = self.density_plane[0].shape[1]
 
-        # Prepare coordinate stacks: (3, B, 2)
+        # === Normalize to [-1, 1] based on aabb ===
+        aabb_min, aabb_max = self.aabb[0], self.aabb[1]
+        xyz_normalized = 2.0 * (xyz_sampled - aabb_min) / (aabb_max - aabb_min) - 1.0
+
+        # === Prepare coordinate stacks: (3, B, 2) and (3, B) ===
         coord_plane = torch.stack([
-            xyz_sampled[..., self.matMode[i]] for i in range(3)
+            xyz_normalized[..., self.matMode[i]] for i in range(3)
         ], dim=0)  # shape: (3, B, 2)
 
         coord_line = torch.stack([
-            xyz_sampled[..., self.vecMode[i]] for i in range(3)
+            xyz_normalized[..., self.vecMode[i]] for i in range(3)
         ], dim=0)  # shape: (3, B)
 
         coord_plane = coord_plane.detach().contiguous().to(device)
         coord_line = coord_line.detach().contiguous().to(device)
 
-        # Prepare planes and lines as (3, C, H, W), (3, C, L)
+        # === Prepare planes and lines: (3, C, H, W), (3, C, L) ===
         planes = torch.stack([p.squeeze(0) for p in self.density_plane], dim=0)  # (3, C, H, W)
         lines = torch.stack([l.squeeze(0).squeeze(-1) for l in self.density_line], dim=0)  # (3, C, L)
 
         planes = planes.contiguous()
         lines = lines.contiguous()
 
-        # Call CUDA kernel
+        # === Call CUDA kernel ===
         nvtx.range_push("fused_plane_line_forward")
         output = fused_plane_line.forward(planes, lines, coord_plane, coord_line)[0]
         nvtx.range_pop()
         nvtx.range_pop()
+
         return output
 
     def compute_appfeature(self, xyz_sampled):
