@@ -264,7 +264,7 @@ class TensorVMSplit(TensorBase):
         output = fused_plane_line.forward(planes, lines, coord_plane, coord_line)[0]
         nvtx.range_pop()
         nvtx.range_pop()
-        output = output*1000
+        output = output*10000.0
         print("Output from kernel stats:", output.min().item(), output.max().item())
 
         return output
