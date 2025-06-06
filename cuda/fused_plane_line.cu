@@ -2,9 +2,8 @@
 #include <cuda_runtime.h>
 #include <vector>
 
+
 __device__ float bilinear_interp(const float* plane, float x, float y, int H, int W) {
-    x = fmaxf(0.0f, fminf(x * 0.5f + 0.5f, 1.0f));
-    y = fmaxf(0.0f, fminf(y * 0.5f + 0.5f, 1.0f));
     float fx = x * (W - 1);
     float fy = y * (H - 1);
     int x0 = floorf(fx), y0 = floorf(fy);
@@ -20,7 +19,6 @@ __device__ float bilinear_interp(const float* plane, float x, float y, int H, in
 }
 
 __device__ float linear_interp(const float* line, float z, int L) {
-    z = fmaxf(0.0f, fminf(z * 0.5f + 0.5f, 1.0f));
     float fz = z * (L - 1);
     int z0 = floorf(fz), z1 = min(z0 + 1, L - 1);
     float dz = fz - z0;
@@ -39,20 +37,28 @@ __global__ void fused_plane_line_kernel(
     if (i >= N) return;
 
     float acc = 0.0f;
+
     for (int axis = 0; axis < 3; ++axis) {
         for (int c = 0; c < C; ++c) {
             const float* plane = planes + axis * C * H * W + c * H * W;
             const float* line = lines + axis * C * L + c * L;
 
-            float x = coord_plane[axis * N * 2 + i * 2 + 0];
-            float y = coord_plane[axis * N * 2 + i * 2 + 1];
-            float z = coord_line[axis * N + i];
+            // Normalize [-1,1] to [0,1] once
+            float x = fminf(fmaxf(coord_plane[axis * N * 2 + i * 2 + 0] * 0.5f + 0.5f, 0.0f), 1.0f);
+            float y = fminf(fmaxf(coord_plane[axis * N * 2 + i * 2 + 1] * 0.5f + 0.5f, 0.0f), 1.0f);
+            float z = fminf(fmaxf(coord_line[axis * N + i] * 0.5f + 0.5f, 0.0f), 1.0f);
 
             float p = bilinear_interp(plane, x, y, H, W);
             float l = linear_interp(line, z, L);
             acc += p * l;
+
+            // Uncomment this to debug
+            if (i < 3 && c == 0)
+                printf("i=%d axis=%d c=%d x=%.3f y=%.3f z=%.3f p=%.6f l=%.6f acc=%.6f\n",
+                       i, axis, c, x, y, z, p, l, acc);
         }
     }
+
     out[i] = acc;
 }
 
