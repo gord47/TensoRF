@@ -258,10 +258,13 @@ class TensorVMSplit(TensorBase):
         planes = planes.contiguous()
         lines = lines.contiguous()
         # === Call CUDA kernel ===
+        print("coord_plane min/max:", coord_plane.min().item(), coord_plane.max().item())
+        print("coord_line min/max:", coord_line.min().item(), coord_line.max().item())
         nvtx.range_push("fused_plane_line_forward")
         output = fused_plane_line.forward(planes, lines, coord_plane, coord_line)[0]
         nvtx.range_pop()
         nvtx.range_pop()
+        output = output*1000
         print("Output from kernel stats:", output.min().item(), output.max().item())
 
         return output
