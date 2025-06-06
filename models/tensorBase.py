@@ -321,19 +321,24 @@ class TensorBase(torch.nn.Module):
     def updateAlphaMask(self, gridSize=(200,200,200)):
 
         alpha, dense_xyz = self.getDenseAlpha(gridSize)
+        print("Initial alpha shape:", alpha.shape)
+        print("Initial alpha stats:", alpha.min().item(), alpha.max().item())
         dense_xyz = dense_xyz.transpose(0,2).contiguous()
+        print("dense_xyz shape:", dense_xyz.shape)
         alpha = alpha.clamp(0,1).transpose(0,2).contiguous()[None,None]
+        print("Alpha after clamp and transpose:", alpha.shape)
         total_voxels = gridSize[0] * gridSize[1] * gridSize[2]
 
         ks = 3
         alpha = F.max_pool3d(alpha, kernel_size=ks, padding=ks // 2, stride=1).view(gridSize[::-1])
+        print("Alpha after pooling:", alpha.shape, "min/max:", alpha.min().item(), alpha.max().item())
         alpha[alpha>=self.alphaMask_thres] = 1
         alpha[alpha<self.alphaMask_thres] = 0
 
         self.alphaMask = AlphaGridMask(self.device, self.aabb, alpha)
 
         valid_xyz = dense_xyz[alpha>0.5]
-
+        print("valid_xyz shape:", valid_xyz.shape)
         xyz_min = valid_xyz.amin(0)
         xyz_max = valid_xyz.amax(0)
 
