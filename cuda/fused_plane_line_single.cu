@@ -22,18 +22,20 @@ __global__ void fused_plane_line_single_kernel(
         const float *plane_c = plane + c * H * W;
         const float *line_c = line + c * L;
 
-        float x = coord_plane[i * 2 + 0];
-        float y = coord_plane[i * 2 + 1];
-        float z = coord_line[i];
-
+        // float x = coord_plane[i * 2 + 0];
+        // float y = coord_plane[i * 2 + 1];
+        // float z = coord_line[i];
+        float x = (coord_plane[i * 2 + 0] + 1.0f) * 0.5f * (W - 1);
+        float y = (coord_plane[i * 2 + 1] + 1.0f) * 0.5f * (H - 1);
+        float z = (coord_line[i] + 1.0f) * 0.5f * (L - 1);
+        printf("x=%.4f y=%.4f z=%.4f p=%.6f l=%.6f p*l=%.6f\n", x, y, z, p, l, p * l);
         float p = bilinear_interp(plane_c, x, y, H, W);
         float l = linear_interp(line_c, z, L);
         acc += p * l;
     }
 
     // Atomically add to output for thread safety when multiple kernels write to the same output
-    // atomicAdd(&out[i], acc);
-    out[i] = acc;
+    atomicAdd(&out[i], acc);
 }
 
 std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
