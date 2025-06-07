@@ -1,1 +1,9 @@
 data
+*.pyc
+__pycache__/
+*.pyo
+*.png
+*.mp4
+log
+*.nsys-rep
+
