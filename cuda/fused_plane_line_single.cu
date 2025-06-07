@@ -32,7 +32,8 @@ __global__ void fused_plane_line_single_kernel(
     }
 
     // Atomically add to output for thread safety when multiple kernels write to the same output
-    atomicAdd(&out[i], acc);
+    // atomicAdd(&out[i], acc);
+    out[i] = acc;
 }
 
 std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
