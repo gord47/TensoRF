@@ -244,9 +244,9 @@ class TensorVMSplit(TensorBase):
         ])  # shape: [3, N]
 
         # Reshape to match the kernel expectation
-        coordinate_plane = coordinate_plane.permute(0, 1).contiguous().view(3, -1, 2)
+        coordinate_plane = coordinate_plane.contiguous().view(3, -1, 2)
         coordinate_line = coordinate_line.contiguous()  # [3, N]
-
+        print("coordinate_plane shape before permute:", coordinate_plane.shape)
         if self.fused_density:
             sigma_feature = fused_plane_line.forward(
                 self.density_plane_data,  # [3, C, H, W]
