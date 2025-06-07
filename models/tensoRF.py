@@ -260,6 +260,8 @@ class TensorVMSplit(TensorBase):
         # Stack coordinates into the format expected by our custom forward function
         coords_plane_stacked = torch.stack(coord_planes, dim=0)  # [3, N, 2]
         coords_line_stacked = torch.stack(coord_lines, dim=0)    # [3, N]
+        print("coords_plane_stacked", coords_plane_stacked.shape)  # should be [3, N, 2]
+        print("coords_line_stacked", coords_line_stacked.shape)  # should be [3, N]
         
         # Use our custom forward function that handles tensors of different sizes
         nvtx.range_push("fused_plane_line_split_forward")
