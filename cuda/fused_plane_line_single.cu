@@ -48,6 +48,7 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
     int W = plane.size(3);
     int L = line.size(2);
     int N = coord_plane.size(0);
+    printf("C=%d, H=%d, W=%d, L=%d, N=%d\n", C, H, W, L, N);
 
     const int threads = 256;
     const int blocks = (N + threads - 1) / threads;
