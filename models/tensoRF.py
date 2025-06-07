@@ -227,57 +227,38 @@ class TensorVMSplit(TensorBase):
         nvtx.range_pop()
         return sigma_feature
     '''
+
     def compute_densityfeature(self, xyz_sampled):
         nvtx.range_push("compute_densityfeature")
+        B = xyz_sampled.shape[0]
+        device = xyz_sampled.device
+        C = self.density_plane[0].shape[1]
 
-        # Compute plane and line coordinates using matMode and vecMode
-        coordinate_plane = torch.stack([
-            xyz_sampled[..., self.matMode[0]],
-            xyz_sampled[..., self.matMode[1]],
-            xyz_sampled[..., self.matMode[2]]
-        ])  # shape: [3, N]
+        # Prepare coordinate stacks: (3, B, 2)
+        coord_plane = torch.stack([
+            xyz_sampled[..., self.matMode[i]] for i in range(3)
+        ], dim=0)  # shape: (3, B, 2)
 
-        coordinate_line = torch.stack([
-            xyz_sampled[..., self.vecMode[0]],
-            xyz_sampled[..., self.vecMode[1]],
-            xyz_sampled[..., self.vecMode[2]]
-        ])  # shape: [3, N]
+        coord_line = torch.stack([
+            xyz_sampled[..., self.vecMode[i]] for i in range(3)
+        ], dim=0)  # shape: (3, B)
 
-        # Reshape to match the kernel expectation
-        coordinate_plane = coordinate_plane.contiguous().view(3, -1, 2)
-        coordinate_line = coordinate_line.contiguous()  # [3, N]
-        print("coordinate_plane shape before permute:", coordinate_plane.shape)
-        if self.fused_density:
-            sigma_feature = fused_plane_line.forward(
-                self.density_plane_data,  # [3, C, H, W]
-                self.density_line_data,   # [3, C, L]
-                coordinate_plane,         # [3, N, 2]
-                coordinate_line           # [3, N]
-            )[0]
-        else:
-            sigma_feature = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
-            for idx_plane in range(len(self.density_plane)):
-                plane_coef_point = F.grid_sample(
-                    self.density_plane[idx_plane],
-                    coordinate_plane[[idx_plane]].view(1, -1, 1, 2),
-                    align_corners=True
-                ).view(-1, *xyz_sampled.shape[:1])
+        coord_plane = coord_plane.detach().contiguous().to(device)
+        coord_line = coord_line.detach().contiguous().to(device)
 
-                line_input = torch.stack((
-                    torch.zeros_like(coordinate_line[idx_plane]),
-                    coordinate_line[idx_plane]
-                ), dim=-1).view(1, -1, 1, 2)
+        # Prepare planes and lines as (3, C, H, W), (3, C, L)
+        planes = torch.stack([p.squeeze(0) for p in self.density_plane], dim=0)  # (3, C, H, W)
+        lines = torch.stack([l.squeeze(0).squeeze(-1) for l in self.density_line], dim=0)  # (3, C, L)
 
-                line_coef_point = F.grid_sample(
-                    self.density_line[idx_plane],
-                    line_input,
-                    align_corners=True
-                ).view(-1, *xyz_sampled.shape[:1])
+        planes = planes.contiguous()
+        lines = lines.contiguous()
 
-                sigma_feature += torch.sum(plane_coef_point * line_coef_point, dim=0)
-
+        # Call CUDA kernel
+        nvtx.range_push("fused_plane_line_forward")
+        output = fused_plane_line.forward(planes, lines, coord_plane, coord_line)[0]
         nvtx.range_pop()
-        return sigma_feature
+        nvtx.range_pop()
+        return output
 
     def compute_appfeature(self, xyz_sampled):
         nvtx.range_push("compute_appfeature")
