@@ -37,7 +37,7 @@ __device__ __forceinline__ float linear_interp(const float *line, float z, int L
     int z0 = static_cast<int>(floorf(fz)), z1 = min(z0 + 1, L - 1);
     float dz = fz - z0;
     printf("   fz=%.4f → (z0,z1)=(%d,%d), dz=%.4f\n", fz, z0,z1, dz);
-    printf("   line_c[z0]=%.6f line_c[z1]=%.6f\n", line_c[z0], line_c[z1]);
+    printf("   line_c[z0]=%.6f line_c[z1]=%.6f\n", line[z0], line[z1]);
     float v0 = line[z0], v1 = line[z1];
     return v0 * (1.0f - dz) + v1 * dz;
 }
