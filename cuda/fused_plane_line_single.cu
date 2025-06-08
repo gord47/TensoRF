@@ -33,6 +33,14 @@ __global__ void fused_plane_line_single_kernel(
         float l = linear_interp(line_c, z, L);
         if (i==0){
             printf("x=%.4f y=%.4f z=%.4f p=%.6f l=%.6f plane=%.6f line=%.6f plane_c=%.6f line_c=%.6f p*l=%.6f\n", x, y, z, p, l, plane, line, plane_c, line_c, p * l);
+            for (int c = 0; c < C && c < 1; ++c) {
+                for (int h = 0; h < H && h < 1; ++h) {
+                    for (int w = 0; w < W && w < 3; ++w) {
+                        int index = ((0 * C + c) * H + h) * W + w; // plane[0][c][h][w]
+                        printf("plane[0][%d][%d][%d] = %f\n", c, h, w, plane[index]);
+                    }
+                }
+            }
         }
         acc += p * l;
     }
@@ -50,18 +58,6 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
 {
     TORCH_CHECK(plane.dim() == 4 || plane.dim() == 3, "Plane must be 3D or 4D");
     TORCH_CHECK(line.dim() == 4 || line.dim() == 2, "Line must be 2D or 4D");
-    auto plane_cpu = plane.to(torch::kCPU);  // copy tensor to CPU
-    auto plane_acc = plane_cpu.accessor<float, 4>();  // 4D: [1, C, H, W]
-
-    std::cout << "Plane values (sample):" << std::endl;
-    for (int c = 0; c < std::min(C, 2); ++c) {
-        for (int h = 0; h < std::min(H, 2); ++h) {
-            for (int w = 0; w < std::min(W, 2); ++w) {
-                std::cout << "plane[0][" << c << "][" << h << "][" << w << "] = "
-                        << plane_acc[0][c][h][w] << std::endl;
-            }
-        }
-    }
     // Handle 4D input tensors [1, C, H, W] or [1, C, L, 1]
     int C = plane.size(1);
     int H = plane.size(2);
