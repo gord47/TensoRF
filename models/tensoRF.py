@@ -223,6 +223,7 @@ class TensorVMSplit(TensorBase):
             sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
             nvtx.range_pop()
         nvtx.range_pop()
+        print("sigma_feature:", sigma_feature.min().item(), sigma_feature.max().item(), sigma_feature.shape)
         return sigma_feature
 
 
