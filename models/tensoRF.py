@@ -262,6 +262,8 @@ class TensorVMSplit(TensorBase):
         coords_line_stacked = torch.stack(coord_lines, dim=0)    # [3, N]
         print("coord_plane range:", coords_plane_stacked.min().item(), coords_plane_stacked.max().item())
         print("coord_line range:", coords_line_stacked.min().item(), coords_line_stacked.max().item())
+        print("density_plane min/max", self.density_plane.min(), self.density_plane.max())
+        print("density_line min/max", self.density_line.min(), self.density_line.max())
         # Use our custom forward function that handles tensors of different sizes
         nvtx.range_push("fused_plane_line_split_forward")
         sigma_feature = fused_plane_line.forward_split(planes, lines, coords_plane_stacked, coords_line_stacked)
