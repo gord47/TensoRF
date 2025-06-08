@@ -3,9 +3,10 @@
 
 __device__ __forceinline__ float bilinear_interp(const float *plane, float x, float y, int H, int W)
 {
-    float fx = fminf(fmaxf(x, 0.0f), W - 1.0f);
-    float fy = fminf(fmaxf(y, 0.0f), H - 1.0f);
-
+    float fx = x;
+    float fy = y;
+    if (fx < 0 || fx > W-1 || fy < 0 || fy > H-1)
+        return 0.0f;
     int x0 = static_cast<int>(floorf(fx));
     int x1 = min(x0 + 1, W - 1);
     int y0 = static_cast<int>(floorf(fy));
