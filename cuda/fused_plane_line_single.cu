@@ -48,12 +48,36 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
     torch::Tensor coord_line,
     torch::Tensor output)
 {
+    TORCH_CHECK(plane.dim() == 4 || plane.dim() == 3, "Plane must be 3D or 4D");
+    TORCH_CHECK(line.dim() == 4 || line.dim() == 2, "Line must be 2D or 4D");
+    int C, H, W, L;
+    
+    if (plane.dim() == 4) {
+        // Format: [1, C, H, W]
+        C = plane.size(1);
+        H = plane.size(2);
+        W = plane.size(3);
+        plane = plane.squeeze(0);  // -> [C, H, W]
+    } else {
+        // Format: [C, H, W]
+        C = plane.size(0);
+        H = plane.size(1);
+        W = plane.size(2);
+    }
+
+    if (line.dim() == 4) {
+        // Format: [1, C, L, 1]
+        TORCH_CHECK(line.size(3) == 1, "Expected singleton last dimension in line tensor");
+        L = line.size(2);
+        line = line.squeeze(0).squeeze(-1);  // -> [C, L]
+    } else {
+        // Format: [C, L]
+        L = line.size(1);
+    }
     // Handle 4D input tensors [1, C, H, W] or [1, C, L, 1]
-    int C = plane.size(1);
-    int H = plane.size(2);
-    int W = plane.size(3);
-    int L = line.size(2);
     int N = coord_plane.size(0);
+    TORCH_CHECK(coord_plane.size(1) == 2, "coord_plane must be Nx2");
+    TORCH_CHECK(coord_line.dim() == 1 && coord_line.size(0) == N, "coord_line must be N");
     printf("C=%d, H=%d, W=%d, L=%d, N=%d\n", C, H, W, L, N);
 
     const int threads = 256;
