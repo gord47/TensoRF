@@ -18,14 +18,14 @@ __global__ void fused_plane_line_single_kernel(
     float x = coord_plane[i * 2 + 0];
     float y = coord_plane[i * 2 + 1];
     float z = coord_line[i];
-    // x = (x + 1.f) * 0.5f * (W - 1);  // Only do this once
-    // y = (y + 1.f) * 0.5f * (H - 1);
-    // z = (z + 1.f) * 0.5f * (L - 1);
+    x = (x + 1.f) * 0.5f * (W - 1);  // Only do this once
+    y = (y + 1.f) * 0.5f * (H - 1);
+    z = (z + 1.f) * 0.5f * (L - 1);
     float acc = 0.0f;
     for (int c = 0; c < C; ++c)
     {
-        const float *plane_c = plane + c * H * W;
-        const float *line_c = line + c * L;
+        const float *plane_c = coord_plane + c * H * W;
+        const float *line_c = coord_line + c * L;
         float p = bilinear_interp(plane_c, x, y, H, W);
         float l = linear_interp(line_c, z, L);
         if (i==0){
