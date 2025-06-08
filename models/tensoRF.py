@@ -253,7 +253,8 @@ class TensorVMSplit(TensorBase):
             # Get the current plane and line
             plane = self.density_plane[i].contiguous()  # [1, C, H, W]
             line = self.density_line[i].contiguous()    # [1, C, L, 1]
-            
+            print(f"plane dimension: {plane.dim()}")
+            print(f"line dimension: {line.dim()}")
             planes.append(plane)
             lines.append(line)
         

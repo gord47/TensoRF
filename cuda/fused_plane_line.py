@@ -55,8 +55,12 @@ def forward_split(planes, lines, coords_plane, coords_line):
     
     # Process each axis separately
     for i in range(3):
-        plane_i = planes[i]
-        line_i = lines[i]
+        # plane_i = planes[i]
+        # line_i = lines[i]
+        plane_i = planes[i].squeeze(0).squeeze(-1)  # Now [C, H, W]
+        line_i  = lines[i].squeeze(0).squeeze(-1).squeeze(-1)  # Now [C, L]
+        assert plane_i.dim() == 3
+        assert line_i.dim() == 2
         coord_plane_i = coords_plane[i]  # [N, 2]
         coord_line_i = coords_line[i]    # [N]
         
