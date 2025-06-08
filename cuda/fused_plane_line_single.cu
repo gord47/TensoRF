@@ -22,12 +22,13 @@ __global__ void fused_plane_line_single_kernel(
         const float *plane_c = plane + c * H * W;
         const float *line_c = line + c * L;
 
-        // float x = coord_plane[i * 2 + 0];
-        // float y = coord_plane[i * 2 + 1];
-        // float z = coord_line[i];
-        float x = (coord_plane[i * 2 + 0] + 1.0f) * 0.5f * (W - 1);
-        float y = (coord_plane[i * 2 + 1] + 1.0f) * 0.5f * (H - 1);
-        float z = (coord_line[i] + 1.0f) * 0.5f * (L - 1);
+        float x = coord_plane[i * 2 + 0];
+        float y = coord_plane[i * 2 + 1];
+        float z = coord_line[i];
+        x = (x + 1.f) * 0.5f * (W - 1);  // Only do this once
+        y = (y + 1.f) * 0.5f * (H - 1);
+        z = (z + 1.f) * 0.5f * (L - 1);
+
         float p = bilinear_interp(plane_c, x, y, H, W);
         float l = linear_interp(line_c, z, L);
         if (i==0){
