@@ -19,8 +19,8 @@ __global__ void fused_plane_line_single_kernel(
     float acc = 0.0f;
     for (int c = 0; c < C; ++c)
     {
-        const float *plane_c = coord_plane + c * H * W;
-        const float *line_c = coord_line + c * L;
+        const float *plane_c = plane + c * H * W;
+        const float *line_c = line + c * L;
 
         float x = coord_plane[i * 2 + 0];
         float y = coord_plane[i * 2 + 1];
@@ -50,7 +50,18 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
 {
     TORCH_CHECK(plane.dim() == 4 || plane.dim() == 3, "Plane must be 3D or 4D");
     TORCH_CHECK(line.dim() == 4 || line.dim() == 2, "Line must be 2D or 4D");
-    
+    auto plane_cpu = plane.to(torch::kCPU);  // copy tensor to CPU
+    auto plane_acc = plane_cpu.accessor<float, 4>();  // 4D: [1, C, H, W]
+
+    std::cout << "Plane values (sample):" << std::endl;
+    for (int c = 0; c < std::min(C, 2); ++c) {
+        for (int h = 0; h < std::min(H, 2); ++h) {
+            for (int w = 0; w < std::min(W, 2); ++w) {
+                std::cout << "plane[0][" << c << "][" << h << "][" << w << "] = "
+                        << plane_acc[0][c][h][w] << std::endl;
+            }
+        }
+    }
     // Handle 4D input tensors [1, C, H, W] or [1, C, L, 1]
     int C = plane.size(1);
     int H = plane.size(2);
