@@ -220,6 +220,8 @@ class TensorVMSplit(TensorBase):
             line_coef_point = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]],
                                             align_corners=True).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
+            plane_input = coordinate_plane[[idx_plane]]
+            line_input = coordinate_line[[idx_plane]]
             print(f"\n--- idx_plane = {idx_plane} ---")
             print(f"coordinate_plane (input to grid_sample):", plane_input[:, i, 0, :])
             print(f"coordinate_line  (input to grid_sample):", line_input[:, i, 0, :])
