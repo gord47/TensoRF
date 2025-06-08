@@ -23,9 +23,9 @@ __global__ void fused_plane_line_kernel(
             const float *plane = planes + axis * C * H * W + c * H * W;
             const float *line = lines + axis * C * L + c * L;
 
-            float x = coord_plane[axis * N * 2 + i * 2 + 0];
-            float y = coord_plane[axis * N * 2 + i * 2 + 1];
-            float z = coord_line[axis * N + i];
+            float x = planes[axis * N * 2 + i * 2 + 0];
+            float y = planes[axis * N * 2 + i * 2 + 1];
+            float z = lines[axis * N + i];
 
             float p = bilinear_interp(plane, x, y, H, W);
             float l = linear_interp(line, z, L);
