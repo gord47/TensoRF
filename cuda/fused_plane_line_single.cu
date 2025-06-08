@@ -68,11 +68,11 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
 
     const int threads = 256;
     const int blocks = (N + threads - 1) / threads;
-    auto plane_flat = plane.contiguous().view({C * H * W});
-    auto line_flat = line.contiguous().view({C * L});
+    auto plane_squeezed = plane.squeeze(0).contiguous();  // [C, H, W]
+    auto line_squeezed = line.squeeze(0).squeeze(-1).contiguous();  // [C, L]
     fused_plane_line_single_kernel<<<blocks, threads>>>(
-        plane_flat.data_ptr<float>(),
-        line_flat.data_ptr<float>(),
+        plane_squeezed.data_ptr<float>(),
+        line_squeezed.data_ptr<float>(),
         coord_plane.contiguous().data_ptr<float>(),
         coord_line.contiguous().data_ptr<float>(),
         output.data_ptr<float>(),
