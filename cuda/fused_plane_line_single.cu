@@ -18,9 +18,9 @@ __global__ void fused_plane_line_single_kernel(
     float x = coord_plane[i * 2 + 0];
     float y = coord_plane[i * 2 + 1];
     float z = coord_line[i];
-    x = (x + 1.f) * 0.5f * (W - 1);  // Only do this once
-    y = (y + 1.f) * 0.5f * (H - 1);
-    z = (z + 1.f) * 0.5f * (L - 1);
+    // x = (x + 1.f) * 0.5f * (W - 1);  // Only do this once
+    // y = (y + 1.f) * 0.5f * (H - 1);
+    // z = (z + 1.f) * 0.5f * (L - 1);
     float acc = 0.0f;
     for (int c = 0; c < C; ++c)
     {
@@ -56,29 +56,17 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
     TORCH_CHECK(plane.dim() == 4 || plane.dim() == 3, "Plane must be 3D or 4D");
     TORCH_CHECK(line.dim() == 4 || line.dim() == 2, "Line must be 2D or 4D");
     // Handle 4D input tensors [1, C, H, W] or [1, C, L, 1]
-    int C, H, W, L;
-    if (plane.dim() == 4) {
-        C = plane.size(1);
-        H = plane.size(2);
-        W = plane.size(3);
-    } else {
-        C = plane.size(0);
-        H = plane.size(1);
-        W = plane.size(2);
-    }
-
-    if (line.dim() == 4) {
-        L = line.size(2);
-    } else {
-        L = line.size(1);
-    }
+    int C = plane.size(1);
+    int H = plane.size(2);
+    int W = plane.size(3);
+    int L = line.size(2);
     int N = coord_plane.size(0);
     printf("C=%d, H=%d, W=%d, L=%d, N=%d\n", C, H, W, L, N);
 
     const int threads = 256;
     const int blocks = (N + threads - 1) / threads;
-    auto plane_squeezed = plane.squeeze(0).contiguous();  // [C, H, W]
-    auto line_squeezed = line.squeeze(0).squeeze(-1).contiguous();  // [C, L]
+    auto plane_squeezed = plane.contiguous();  // [C, H, W]
+    auto line_squeezed = line.contiguous();  // [C, L]
     fused_plane_line_single_kernel<<<blocks, threads>>>(
         plane_squeezed.data_ptr<float>(),
         line_squeezed.data_ptr<float>(),
