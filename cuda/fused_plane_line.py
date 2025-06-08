@@ -57,7 +57,6 @@ def forward_split(planes, lines, coords_plane, coords_line):
     for i in range(3):
         plane_i = planes[i]
         line_i = lines[i]
-        print(plane_i.shape, line_i.shape)
         coord_plane_i = coords_plane[i]  # [N, 2]
         coord_line_i = coords_line[i]    # [N]
         

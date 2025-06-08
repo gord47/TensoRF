@@ -28,17 +28,7 @@ __global__ void fused_plane_line_single_kernel(
         const float *line_c = coord_line + c * L;
         float p = bilinear_interp(plane_c, x, y, H, W);
         float l = linear_interp(line_c, z, L);
-        if (i==0){
-            printf("x=%.4f y=%.4f z=%.4f p=%.6f l=%.6f plane=%.6f line=%.6f plane_c=%.6f line_c=%.6f p*l=%.6f\n", x, y, z, p, l, plane[0], line[0], plane_c[0], line_c[0], p * l);
-            for (int c = 0; c < C && c < 1; ++c) {
-                for (int h = 0; h < H && h < 1; ++h) {
-                    for (int w = 0; w < W && w < 3; ++w) {
-                        int index = ((0 * C + c) * H + h) * W + w; // plane[0][c][h][w]
-                        printf("plane[0][%d][%d][%d] = %f\n", c, h, w, plane[index]);
-                    }
-                }
-            }
-        }
+        
         acc += p * l;
     }
 
@@ -61,7 +51,6 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
     int W = plane.size(3);
     int L = line.size(2);
     int N = coord_plane.size(0);
-    printf("C=%d, H=%d, W=%d, L=%d, N=%d\n", C, H, W, L, N);
 
     const int threads = 256;
     const int blocks = (N + threads - 1) / threads;

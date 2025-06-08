@@ -253,21 +253,21 @@ class TensorVMSplit(TensorBase):
             # Get the current plane and line
             plane = self.density_plane[i].contiguous()  # [1, C, H, W]
             line = self.density_line[i].contiguous()    # [1, C, L, 1]
-            print(f"plane dimension: {plane.dim()}")
-            print(f"line dimension: {line.dim()}")
+            # print(f"plane dimension: {plane.dim()}")
+            # print(f"line dimension: {line.dim()}")
             planes.append(plane)
             lines.append(line)
         
         # Stack coordinates into the format expected by our custom forward function
         coords_plane_stacked = torch.stack(coord_planes, dim=0)  # [3, N, 2]
         coords_line_stacked = torch.stack(coord_lines, dim=0)    # [3, N]
-        print("coord_plane range:", coords_plane_stacked.min().item(), coords_plane_stacked.max().item())
-        print("coord_line range:", coords_line_stacked.min().item(), coords_line_stacked.max().item())
-        for i, plane in enumerate(self.density_plane):
-            print(f"density_plane[{i}] min={plane.min().item():.6f}, max={plane.max().item():.6f}, mean={plane.mean().item():.6f}")
-
-        for i, line in enumerate(self.density_line):
-            print(f"density_line[{i}] min={line.min().item():.6f}, max={line.max().item():.6f}, mean={line.mean().item():.6f}")
+        # print("coord_plane range:", coords_plane_stacked.min().item(), coords_plane_stacked.max().item())
+        # print("coord_line range:", coords_line_stacked.min().item(), coords_line_stacked.max().item())
+        # for i, plane in enumerate(self.density_plane):
+        #     print(f"density_plane[{i}] min={plane.min().item():.6f}, max={plane.max().item():.6f}, mean={plane.mean().item():.6f}")
+# 
+        # for i, line in enumerate(self.density_line):
+        #     print(f"density_line[{i}] min={line.min().item():.6f}, max={line.max().item():.6f}, mean={line.mean().item():.6f}")
         # Use our custom forward function that handles tensors of different sizes
         nvtx.range_push("fused_plane_line_split_forward")
         sigma_feature = fused_plane_line.forward_split(planes, lines, coords_plane_stacked, coords_line_stacked)
