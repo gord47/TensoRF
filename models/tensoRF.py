@@ -272,7 +272,7 @@ class TensorVMSplit(TensorBase):
         nvtx.range_push("fused_plane_line_split_forward")
         sigma_feature = fused_plane_line.forward_split(planes, lines, coords_plane_stacked, coords_line_stacked)
         nvtx.range_pop()
-        print("sigma_feature:", sigma_feature.min().item(), sigma_feature.max().item(), sigma_feature.shape)
+        # print("sigma_feature:", sigma_feature.min().item(), sigma_feature.max().item(), sigma_feature.shape)
         nvtx.range_pop()
         return sigma_feature
 
