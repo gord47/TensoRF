@@ -77,6 +77,7 @@ std::vector<torch::Tensor> fused_plane_line_single_forward_cuda(
         coord_line.contiguous().data_ptr<float>(),
         output.data_ptr<float>(),
         C, H, W, L, N);
-
+    cudaError_t err = cudaGetLastError();
+    cudaDeviceSynchronize();
     return {output};
 }
