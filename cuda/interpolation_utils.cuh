@@ -20,10 +20,7 @@ __device__ __forceinline__ float bilinear_interp(const float *plane, float x, fl
     float v11 = plane[y1 * W + x1];
     printf("   v00=%.6f v01=%.6f v10=%.6f v11=%.6f\n",
            v00,v01,v10,v11);
-    float p_test = v00 * (1–dx)*(1–dy)
-        + v01 * dx*(1–dy)
-        + v10 * (1–dx)*dy
-        + v11 * dx*dy;
+    float p_test = v00 * (1 - dx)*(1 - dy)+ v01 * dx*(1 - dy) + v10 * (1 - dx)*dy + v11 * dx * dy;
     printf("   test_p=%.6f\n", p_test);
 
     float v0 = v00 * (1 - dx) + v01 * dx;
