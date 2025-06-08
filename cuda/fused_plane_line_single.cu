@@ -30,7 +30,9 @@ __global__ void fused_plane_line_single_kernel(
         float z = (coord_line[i] + 1.0f) * 0.5f * (L - 1);
         float p = bilinear_interp(plane_c, x, y, H, W);
         float l = linear_interp(line_c, z, L);
-        printf("x=%.4f y=%.4f z=%.4f p=%.6f l=%.6f p*l=%.6f\n", x, y, z, p, l, p * l);
+        if (i==0){
+            printf("x=%.4f y=%.4f z=%.4f p=%.6f l=%.6f p*l=%.6f\n", x, y, z, p, l, p * l);
+        }
         acc += p * l;
     }
 
