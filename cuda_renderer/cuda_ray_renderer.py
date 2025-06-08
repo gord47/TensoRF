@@ -92,11 +92,29 @@ class CudaRayRenderer:
         
         # Extract model parameters
         if hasattr(tensorf_model, 'density_plane') and hasattr(tensorf_model, 'density_line'):
-            # TensorVMSplit model
-            density_planes = torch.cat([p.squeeze(0) for p in tensorf_model.density_plane], dim=0)
-            density_lines = torch.cat([l.squeeze(0).squeeze(-1) for l in tensorf_model.density_line], dim=0)
-            app_planes = torch.cat([p.squeeze(0) for p in tensorf_model.app_plane], dim=0)
-            app_lines = torch.cat([l.squeeze(0).squeeze(-1) for l in tensorf_model.app_line], dim=0)
+            # TensorVMSplit model - FIXED: concatenate channels from all planes properly
+            # Each plane has shape [1, n_components, H, W], we want [total_components, H, W]
+            # We need to flatten the channels: [1,16,H,W] -> [16,H,W] for each plane, then cat to [48,H,W]
+            density_plane_list = [p.squeeze(0) for p in tensorf_model.density_plane]  # Each: [16, H, W]
+            density_planes = torch.cat(density_plane_list, dim=0)  # Result: [48, H, W]
+            
+            density_line_list = [l.squeeze(0).squeeze(-1) for l in tensorf_model.density_line]  # Each: [16, H]  
+            density_lines = torch.cat(density_line_list, dim=0)  # Result: [48, H]
+            
+            app_plane_list = [p.squeeze(0) for p in tensorf_model.app_plane]  # Each: [n_comp, H, W]
+            app_planes = torch.cat(app_plane_list, dim=0)  # Result: [total_app_comp, H, W]
+            
+            app_line_list = [l.squeeze(0).squeeze(-1) for l in tensorf_model.app_line]  # Each: [n_comp, H]
+            app_lines = torch.cat(app_line_list, dim=0)  # Result: [total_app_comp, H]
+            
+            # Debug: Print tensor shapes to verify correct concatenation
+            print(f"DEBUG: Individual density plane shapes: {[p.shape for p in tensorf_model.density_plane]}")
+            print(f"DEBUG: After squeeze - density plane shapes: {[p.shape for p in density_plane_list]}")
+            print(f"DEBUG: Concatenated density_planes shape: {density_planes.shape}")
+            print(f"DEBUG: Individual density line shapes: {[l.shape for l in tensorf_model.density_line]}")
+            print(f"DEBUG: After squeeze - density line shapes: {[l.shape for l in density_line_list]}")
+            print(f"DEBUG: Concatenated density_lines shape: {density_lines.shape}")
+            print(f"DEBUG: Expected total density components: {sum([p.shape[1] for p in tensorf_model.density_plane])}")
         else:
             # TensorVM model
             density_planes = tensorf_model.plane_coef[:, -tensorf_model.density_n_comp:]

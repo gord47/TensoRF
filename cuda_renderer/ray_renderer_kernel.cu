@@ -312,53 +312,47 @@ __global__ void fused_ray_render_kernel(
                          i, pos.x, pos.y, pos.z, norm_pos.x, norm_pos.y, norm_pos.z);
         }
 
-        // Process density features using proper tensor layout
-        // Tensor layout: density_planes [3, C_d, H, W], density_lines [3, C_d, L, 1]
+        // Process density features using concatenated tensor layout
+        // Tensor layout: density_planes [total_comp, H, W], density_lines [total_comp, L]
+        // where total_comp = 3 * density_n_comp (concatenated from 3 planes)
         if (density_planes && density_lines)
         {
-            // Calculate separate strides for each plane based on their actual dimensions
-            int xy_plane_stride = density_n_comp * grid_size[1] * grid_size[0]; // XY: [C_d, H, W] = [C_d, grid_size[1], grid_size[0]]
-            int xz_plane_stride = density_n_comp * grid_size[2] * grid_size[0]; // XZ: [C_d, H, W] = [C_d, grid_size[2], grid_size[0]]
-            int yz_plane_stride = density_n_comp * grid_size[2] * grid_size[1]; // YZ: [C_d, H, W] = [C_d, grid_size[2], grid_size[1]]
+            int total_density_comp = 3 * density_n_comp; // Total components after concatenation
             
-            // Line strides
-            int z_line_stride = density_n_comp * grid_size[2]; // Z line: [C_d, grid_size[2]]
-            int y_line_stride = density_n_comp * grid_size[1]; // Y line: [C_d, grid_size[1]]
-            int x_line_stride = density_n_comp * grid_size[0]; // X line: [C_d, grid_size[0]]
+            // Grid dimensions (H=grid_size[1], W=grid_size[0] for XY plane)
+            int H = grid_size[1];
+            int W = grid_size[0];
+            int D = grid_size[2];
 
             if (ray_idx < 2 && i < 3)
             {
-                DEBUG_PRINTF("Density strides - xy_plane:%d, xz_plane:%d, yz_plane:%d, z_line:%d, y_line:%d, x_line:%d", 
-                           xy_plane_stride, xz_plane_stride, yz_plane_stride, z_line_stride, y_line_stride, x_line_stride);
+                DEBUG_PRINTF("Using concatenated format - total_comp:%d, grid:[%d,%d,%d]", 
+                           total_density_comp, W, H, D);
             }
 
-            // XY plane (plane 0) with Z line (line 0)
-            const float *xy_plane_ptr = density_planes; // plane 0
-            const float *z_line_ptr = density_lines;    // line 0
+            // XY plane components (first density_n_comp channels) with Z line components
             for (int c = 0; c < density_n_comp; c++)
             {
-                float plane_val = grid_sample_2d(xy_plane_ptr, density_n_comp, grid_size[1], grid_size[0], norm_pos.x, norm_pos.y, c);
-                float line_val = grid_sample_1d(z_line_ptr, density_n_comp, grid_size[2], norm_pos.z, c);
+                float plane_val = grid_sample_2d(density_planes, total_density_comp, H, W, norm_pos.x, norm_pos.y, c);
+                float line_val = grid_sample_1d(density_lines, total_density_comp, D, norm_pos.z, c);
                 sigma_feature += plane_val * line_val;
             }
 
-            // XZ plane (plane 1) with Y line (line 1)
-            const float *xz_plane_ptr = density_planes + xy_plane_stride; // plane 1 starts after XY plane
-            const float *y_line_ptr = density_lines + z_line_stride;      // line 1 starts after Z line
+            // XZ plane components (second density_n_comp channels) with Y line components  
             for (int c = 0; c < density_n_comp; c++)
             {
-                float plane_val = grid_sample_2d(xz_plane_ptr, density_n_comp, grid_size[2], grid_size[0], norm_pos.x, norm_pos.z, c);
-                float line_val = grid_sample_1d(y_line_ptr, density_n_comp, grid_size[1], norm_pos.y, c);
+                int comp_idx = density_n_comp + c; // Offset to second plane's components
+                float plane_val = grid_sample_2d(density_planes, total_density_comp, D, W, norm_pos.x, norm_pos.z, comp_idx);
+                float line_val = grid_sample_1d(density_lines, total_density_comp, H, norm_pos.y, comp_idx);
                 sigma_feature += plane_val * line_val;
             }
 
-            // YZ plane (plane 2) with X line (line 2)
-            const float *yz_plane_ptr = density_planes + xy_plane_stride + xz_plane_stride; // plane 2 starts after XY and XZ planes
-            const float *x_line_ptr = density_lines + z_line_stride + y_line_stride;        // line 2 starts after Z and Y lines
+            // YZ plane components (third density_n_comp channels) with X line components
             for (int c = 0; c < density_n_comp; c++)
             {
-                float plane_val = grid_sample_2d(yz_plane_ptr, density_n_comp, grid_size[2], grid_size[1], norm_pos.y, norm_pos.z, c);
-                float line_val = grid_sample_1d(x_line_ptr, density_n_comp, grid_size[0], norm_pos.x, c);
+                int comp_idx = 2 * density_n_comp + c; // Offset to third plane's components
+                float plane_val = grid_sample_2d(density_planes, total_density_comp, D, H, norm_pos.y, norm_pos.z, comp_idx);
+                float line_val = grid_sample_1d(density_lines, total_density_comp, W, norm_pos.x, comp_idx);
                 sigma_feature += plane_val * line_val;
             }
         }
@@ -389,76 +383,66 @@ __global__ void fused_ray_render_kernel(
                 app_features[j] = 0.0f;
             }
 
-            // Compute app features from planes and lines using proper tensor layout
-            // Tensor layout: app_planes [3, C_a, H, W], app_lines [3, C_a, L, 1]
-            // Calculate separate strides for each plane based on their actual dimensions
-            int xy_app_plane_stride = app_n_comp * grid_size[1] * grid_size[0]; // XY: [C_a, H, W] = [C_a, grid_size[1], grid_size[0]]
-            int xz_app_plane_stride = app_n_comp * grid_size[2] * grid_size[0]; // XZ: [C_a, H, W] = [C_a, grid_size[2], grid_size[0]]
-            int yz_app_plane_stride = app_n_comp * grid_size[2] * grid_size[1]; // YZ: [C_a, H, W] = [C_a, grid_size[2], grid_size[1]]
+            // Compute app features from planes and lines using concatenated tensor layout
+            // Tensor layout: app_planes [total_app_comp, H, W], app_lines [total_app_comp, L]
+            // where total_app_comp = 3 * app_n_comp (concatenated from 3 planes)
+            int total_app_comp = 3 * app_n_comp; // Total components after concatenation
             
-            // App Line strides
-            int z_app_line_stride = app_n_comp * grid_size[2]; // Z line: [C_a, grid_size[2]]
-            int y_app_line_stride = app_n_comp * grid_size[1]; // Y line: [C_a, grid_size[1]]
-            int x_app_line_stride = app_n_comp * grid_size[0]; // X line: [C_a, grid_size[0]]
+            // Grid dimensions (H=grid_size[1], W=grid_size[0] for XY plane)
+            int H = grid_size[1];
+            int W = grid_size[0];
+            int D = grid_size[2];
 
             int feature_idx = 0;
 
-            // XY plane (plane 0) with Z line (line 0)
-            const float *xy_app_plane_ptr = app_planes; // plane 0
-            const float *z_app_line_ptr = app_lines;    // line 0
+            // XY plane components (first app_n_comp channels) with Z line components
             for (int c = 0; c < app_n_comp && feature_idx < app_dim; c++, feature_idx++)
             {
-                float plane_val = grid_sample_2d(xy_app_plane_ptr, app_n_comp, grid_size[1], grid_size[0], norm_pos.x, norm_pos.y, c);
-                float line_val = grid_sample_1d(z_app_line_ptr, app_n_comp, grid_size[2], norm_pos.z, c);
+                float plane_val = grid_sample_2d(app_planes, total_app_comp, H, W, norm_pos.x, norm_pos.y, c);
+                float line_val = grid_sample_1d(app_lines, total_app_comp, D, norm_pos.z, c);
 
                 // Apply basis matrix transformation with bounds checking
                 for (int d = 0; d < app_dim && d < 64; d++)
                 {
-                    int basis_idx = d * (3 * app_n_comp) + feature_idx;
+                    int basis_idx = d * total_app_comp + feature_idx;
                     // Add bounds check for basis matrix access
-                    if (basis_idx < app_dim * 3 * app_n_comp && feature_idx < 3 * app_n_comp)
+                    if (basis_idx < app_dim * total_app_comp && feature_idx < total_app_comp)
                     {
                         app_features[d] += basis_mat_weight[basis_idx] * plane_val * line_val;
                     }
                 }
             }
 
-            // XZ plane (plane 1) with Y line (line 1)
-            const float *xz_app_plane_ptr = app_planes + xy_app_plane_stride; // plane 1 starts after XY plane
-            const float *y_app_line_ptr = app_lines + z_app_line_stride;      // line 1 starts after Z line
+            // XZ plane components (second app_n_comp channels) with Y line components
             for (int c = 0; c < app_n_comp && feature_idx < app_dim; c++, feature_idx++)
             {
-                float plane_val = grid_sample_2d(xz_app_plane_ptr,
-                                                 app_n_comp, grid_size[2], grid_size[0], norm_pos.x, norm_pos.z, c);
-                float line_val = grid_sample_1d(y_app_line_ptr,
-                                                app_n_comp, grid_size[1], norm_pos.y, c);
+                int comp_idx = app_n_comp + c; // Offset to second plane's components
+                float plane_val = grid_sample_2d(app_planes, total_app_comp, D, W, norm_pos.x, norm_pos.z, comp_idx);
+                float line_val = grid_sample_1d(app_lines, total_app_comp, H, norm_pos.y, comp_idx);
 
                 for (int d = 0; d < app_dim && d < 64; d++)
                 {
-                    int basis_idx = d * (3 * app_n_comp) + feature_idx;
+                    int basis_idx = d * total_app_comp + feature_idx;
                     // Add bounds check for basis matrix access
-                    if (basis_idx < app_dim * 3 * app_n_comp && feature_idx < 3 * app_n_comp)
+                    if (basis_idx < app_dim * total_app_comp && feature_idx < total_app_comp)
                     {
                         app_features[d] += basis_mat_weight[basis_idx] * plane_val * line_val;
                     }
                 }
             }
 
-            // YZ plane (plane 2) with X line (line 2)
-            const float *yz_app_plane_ptr = app_planes + xy_app_plane_stride + xz_app_plane_stride; // plane 2 starts after XY and XZ planes
-            const float *x_app_line_ptr = app_lines + z_app_line_stride + y_app_line_stride;        // line 2 starts after Z and Y lines
+            // YZ plane components (third app_n_comp channels) with X line components
             for (int c = 0; c < app_n_comp && feature_idx < app_dim; c++, feature_idx++)
             {
-                float plane_val = grid_sample_2d(yz_app_plane_ptr,
-                                                 app_n_comp, grid_size[2], grid_size[1], norm_pos.y, norm_pos.z, c);
-                float line_val = grid_sample_1d(x_app_line_ptr,
-                                                app_n_comp, grid_size[0], norm_pos.x, c);
+                int comp_idx = 2 * app_n_comp + c; // Offset to third plane's components
+                float plane_val = grid_sample_2d(app_planes, total_app_comp, D, H, norm_pos.y, norm_pos.z, comp_idx);
+                float line_val = grid_sample_1d(app_lines, total_app_comp, W, norm_pos.x, comp_idx);
 
                 for (int d = 0; d < app_dim && d < 64; d++)
                 {
-                    int basis_idx = d * (3 * app_n_comp) + feature_idx;
+                    int basis_idx = d * total_app_comp + feature_idx;
                     // Add bounds check for basis matrix access
-                    if (basis_idx < app_dim * 3 * app_n_comp && feature_idx < 3 * app_n_comp)
+                    if (basis_idx < app_dim * total_app_comp && feature_idx < total_app_comp)
                     {
                         app_features[d] += basis_mat_weight[basis_idx] * plane_val * line_val;
                     }
@@ -577,9 +561,22 @@ std::vector<torch::Tensor> fused_ray_render_cuda_forward(
 {
 
     const int n_rays = rays.size(0);
-    const int density_n_comp = density_planes.size(0);
-    const int app_n_comp = app_planes.size(0);
+    // FIXED: Correct component calculation for concatenated tensors
+    // For TensorVMSplit: density_planes shape [48, H, W] = 3 planes * 16 components each
+    // So individual density_n_comp = 48/3 = 16
+    const int density_n_comp = density_planes.size(0) / 3;  // Individual component count per plane
+    const int app_n_comp = app_planes.size(0) / 3;         // Individual component count per plane  
     const int app_dim = basis_mat_weight.size(0);
+
+#if DEBUG_MODE
+    // Print calculation details for debugging
+    printf("[DEBUG] Tensor size calculations:\n");
+    printf("  density_planes.size(0) = %ld\n", density_planes.size(0));
+    printf("  density_planes.size(0) / 3 = %d\n", (int)(density_planes.size(0) / 3));
+    printf("  app_planes.size(0) = %ld\n", app_planes.size(0));
+    printf("  app_planes.size(0) / 3 = %d\n", (int)(app_planes.size(0) / 3));
+    printf("  Final: density_n_comp=%d, app_n_comp=%d\n", density_n_comp, app_n_comp);
+#endif
 
 #if DEBUG_MODE
     // Print tensor dimensions for debugging
@@ -623,8 +620,8 @@ std::vector<torch::Tensor> fused_ray_render_cuda_forward(
     }
     printf("  basis_mat_weight: [%ld, %ld]\n", basis_mat_weight.size(0), basis_mat_weight.size(1));
     printf("  grid_size tensor: [%ld]\n", grid_size.size(0));
-    printf("  Computed: n_rays=%d, density_n_comp=%d, app_n_comp=%d, app_dim=%d\n",
-           n_rays, density_n_comp, app_n_comp, app_dim);
+    printf("  CORRECTED Computed: n_rays=%d, density_n_comp=%d (total=%ld), app_n_comp=%d (total=%ld), app_dim=%d\n",
+           n_rays, density_n_comp, density_planes.size(0), app_n_comp, app_planes.size(0), app_dim);
 
     // Print grid size values
     auto grid_size_cpu = grid_size.cpu();
