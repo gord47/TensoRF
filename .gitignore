@@ -6,4 +6,7 @@ __pycache__/
 *.mp4
 log
 *.nsys-rep
-
+*.lib
+*.pyd
+*.exp
+jit_build_fixed

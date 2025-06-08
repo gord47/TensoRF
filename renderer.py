@@ -6,22 +6,93 @@ from utils import *
 from dataLoader.ray_utils import ndc_rays_blender
 import torch.cuda.nvtx as nvtx
 
+# Import CUDA renderer - REQUIRED FOR TRAINING (no fallbacks)
+try:
+    from cuda_renderer import CudaRayRenderer
+    cuda_renderer = CudaRayRenderer()
+    print("CUDA Ray Renderer imported successfully!")
+    CUDA_RENDERER_AVAILABLE = True
+except Exception as e:
+    print(f"CRITICAL ERROR: CUDA Ray Renderer failed to load: {e}")
+    print("Training requires CUDA acceleration and will not work without it.")
+    CUDA_RENDERER_AVAILABLE = False
+    cuda_renderer = None
+    # Note: We don't raise here to allow import, but functions will fail when called
+
 
 def OctreeRender_trilinear_fast(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray=False, white_bg=True, is_train=False, device='cuda'):
+    """
+    CUDA-only version of the ray renderer (no fallback).
+    
+    This function requires CUDA acceleration and will fail if CUDA is not available.
+    Use OctreeRender_trilinear_fast_cuda for the same functionality with better error messages.
+    """
     nvtx.range_push("OctreeRender_trilinear_fast")
-    rgbs, alphas, depth_maps, weights, uncertainties = [], [], [], [], []
-    N_rays_all = rays.shape[0]
-    for chunk_idx in range(N_rays_all // chunk + int(N_rays_all % chunk > 0)):
-        nvtx.range_push(f"Chunk {chunk_idx} of {N_rays_all // chunk + int(N_rays_all % chunk > 0)}")
-        rays_chunk = rays[chunk_idx * chunk:(chunk_idx + 1) * chunk].to(device)
-        nvtx.range_push("Render rays")
-        rgb_map, depth_map = tensorf(rays_chunk, is_train=is_train, white_bg=white_bg, ndc_ray=ndc_ray, N_samples=N_samples)
+    
+    if not CUDA_RENDERER_AVAILABLE:
+        raise RuntimeError("CUDA Ray Renderer is not available. Training requires CUDA acceleration.")
+    
+    if not cuda_renderer.cuda_available:
+        raise RuntimeError("CUDA Ray Renderer failed to initialize. Training requires CUDA acceleration.")
+        
+    if ndc_ray:
+        raise NotImplementedError("NDC rays are not yet supported in CUDA implementation")
+    
+    try:
+        nvtx.range_push("CUDA Ray Rendering")
+        # Use CUDA renderer for all rays at once (no chunking needed)
+        rgb_maps, depth_maps = cuda_renderer.render_rays(
+            rays=rays.to(device), 
+            tensorf_model=tensorf,
+            chunk=chunk,
+            N_samples=N_samples,
+            white_bg=white_bg,
+            is_train=is_train
+        )
         nvtx.range_pop()
-        rgbs.append(rgb_map)
-        depth_maps.append(depth_map)
         nvtx.range_pop()
-    nvtx.range_pop()
-    return torch.cat(rgbs), None, torch.cat(depth_maps), None, None
+        return rgb_maps, None, depth_maps, None, None
+    except Exception as e:
+        nvtx.range_pop()
+        nvtx.range_pop()
+        raise RuntimeError(f"CUDA rendering failed: {e}")
+
+def OctreeRender_trilinear_fast_cuda(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray=False, white_bg=True, is_train=False, device='cuda'):
+    """
+    CUDA-accelerated version of OctreeRender_trilinear_fast
+    
+    This function forces CUDA acceleration and will raise an error if CUDA is not available.
+    Use this for performance-critical applications where CUDA acceleration is required.
+    """
+    nvtx.range_push("OctreeRender_trilinear_fast_cuda")
+    
+    if not CUDA_RENDERER_AVAILABLE:
+        raise RuntimeError("CUDA Ray Renderer is not available. Please install the CUDA extension.")
+    
+    if not cuda_renderer.cuda_available:
+        raise RuntimeError("CUDA Ray Renderer failed to initialize.")
+        
+    if ndc_ray:
+        raise NotImplementedError("NDC rays are not yet supported in CUDA implementation")
+    
+    try:
+        nvtx.range_push("CUDA Ray Rendering")
+        # Use CUDA renderer for all rays at once (no chunking needed)
+        rgb_maps, depth_maps = cuda_renderer.render_rays(
+            rays=rays.to(device), 
+            tensorf_model=tensorf,
+            chunk=chunk,
+            N_samples=N_samples,
+            white_bg=white_bg,
+            is_train=is_train
+        )
+        nvtx.range_pop()
+        nvtx.range_pop()
+        return rgb_maps, None, depth_maps, None, None
+    except Exception as e:
+        nvtx.range_pop()
+        nvtx.range_pop()
+        raise RuntimeError(f"CUDA rendering failed: {e}")
 
 @torch.no_grad()
 def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
