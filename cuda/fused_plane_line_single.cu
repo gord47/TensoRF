@@ -4,7 +4,6 @@
 #include "interpolation_utils.cuh"
 
 // Kernel for a single plane-line component
-template <typename scalar_t>
 __global__ void fused_plane_line_single_kernel(
     const float *__restrict__ plane,
     const float *__restrict__ line,
