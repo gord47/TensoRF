@@ -256,7 +256,11 @@ class TensorVMSplit(TensorBase):
             sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
             nvtx.range_pop()
         nvtx.range_pop()
-        print(sigma_feature)
+        print("\nCUDA kernel implementation results:")
+        print(f"- Min: {sigma_feature.min().item():.6f}")
+        print(f"- Max: {sigma_feature.max().item():.6f}")
+        print(f"- Mean: {sigma_feature.mean().item():.6f}")
+        print(f"- Std: {sigma_feature.std().item():.6f}")
         return sigma_feature
 
     def compute_appfeature(self, xyz_sampled):
