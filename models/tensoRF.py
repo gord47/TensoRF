@@ -210,7 +210,6 @@ class TensorVMSplit(TensorBase):
         coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
 
         sigma_feature = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
-        i = 0
         for idx_plane in range(len(self.density_plane)):
             nvtx.range_push(f"grid_sample_density_plane[{idx_plane}]")
             plane_coef_point = F.grid_sample(self.density_plane[idx_plane], coordinate_plane[[idx_plane]],
@@ -220,20 +219,11 @@ class TensorVMSplit(TensorBase):
             line_coef_point = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]],
                                             align_corners=True).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
-            plane_input = coordinate_plane[[idx_plane]]
-            line_input = coordinate_line[[idx_plane]]
-            print(f"\n--- idx_plane = {idx_plane} ---")
-            print(f"coordinate_plane (input to grid_sample):", plane_input[:, i, 0, :])
-            print(f"coordinate_line  (input to grid_sample):", line_input[:, i, 0, :])
-            print(f"plane_coef_point[:, {i}]:", plane_coef_point[:, i])
-            print(f"line_coef_point[:, {i}]:", line_coef_point[:, i])
-            print(f"product[:, {i}]:", plane_coef_point[:, i] * line_coef_point[:, i])
-            print(f"sum(product):", (plane_coef_point[:, i] * line_coef_point[:, i]).sum())
+
             nvtx.range_push("combine_density_features")
             sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
             nvtx.range_pop()
         nvtx.range_pop()
-        print("sigma_feature:", sigma_feature.min().item(), sigma_feature.max().item(), sigma_feature.shape)
         return sigma_feature
 
 
