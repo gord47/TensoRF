@@ -4,7 +4,7 @@ datadir = ./data/nerf_synthetic/lego
 expname =  tensorf_lego_VM
 basedir = ./log
 
-n_iters = 3
+n_iters = 15000
 batch_size = 2048
 
 N_voxel_init = 2097156 # 128**3
@@ -16,7 +16,8 @@ N_vis = 5
 vis_every = 10000
 
 render_test = 1
-
+render_only = 1
+ckpt = log/tensorf_lego_VM.th
 n_lamb_sigma = [16,16,16]
 n_lamb_sh = [48,48,48]
 model_name = TensorVMSplit
