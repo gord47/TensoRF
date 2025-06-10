@@ -19,14 +19,15 @@ coordinate_plane = torch.stack((
     xyz_sampled[..., [0, 1]],  # XY plane
     xyz_sampled[..., [0, 2]],  # XZ plane
     xyz_sampled[..., [1, 2]]   # YZ plane
-)).detach().view(3, N, 1, 2)
+)).detach().view(3, -1, 1, 2)
 
 # Create grid for lines
 coordinate_line = torch.stack((
     xyz_sampled[..., [2]],     # Z dimension
     xyz_sampled[..., [1]],     # Y dimension
     xyz_sampled[..., [0]]      # X dimension
-)).detach().view(3, N, 1, 1)
+))
+coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
 
 # Custom CUDA implementation
 sigma_feature_custom = torch.zeros((xyz_sampled.shape[0],), device=device)
