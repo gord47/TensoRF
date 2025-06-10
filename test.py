@@ -4,83 +4,32 @@ import cuda.grid_sample as grid_sample_cuda
 
 # Parameters
 device = "cuda"
-N = 1024  # Number of points
-grid_size = 128  # Grid resolution
+N, C, H, W = 2, 3, 128, 128
+out_H, out_W = 64, 64
 
-# Create input tensors similar to tensoRF
-density_plane = torch.rand(3, 1, 1, grid_size, grid_size, device=device)
-density_line = torch.rand(3, 1, 1, grid_size, 1, device=device)
+# Create tensors with gradient tracking
+input_pt = torch.randn(N, C, H, W, device=device, requires_grad=True)
+grid_pt = torch.rand(N, out_H, out_W, 2, device=device) * 2 - 1
+grid_pt.requires_grad = True
 
-# Create coordinates (similar to tensoRF's coordinate system)
-xyz_sampled = torch.rand(N, 3, device=device) * 2 - 1  # Normalized to [-1, 1]
+input_cu = input_pt.detach().clone().requires_grad_()
+grid_cu = grid_pt.detach().clone().requires_grad_()
 
-# Create grid for planes (XY, XZ, YZ)
-coordinate_plane = torch.stack((
-    xyz_sampled[..., [0, 1]],  # XY plane
-    xyz_sampled[..., [0, 2]],  # XZ plane
-    xyz_sampled[..., [1, 2]]   # YZ plane
-)).detach().view(3, -1, 1, 2)
+# Forward pass
+output_pt = F.grid_sample(input_pt, grid_pt, align_corners=True)
+output_cu = grid_sample_cuda.forward(input_cu, grid_cu, True)
 
-# Create grid for lines
-coordinate_line = torch.stack((
-    xyz_sampled[..., [2]],     # Z dimension
-    xyz_sampled[..., [1]],     # Y dimension
-    xyz_sampled[..., [0]]      # X dimension
-))
-coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
+# Backward pass
+grad_output = torch.randn_like(output_pt)
+output_pt.backward(grad_output)
+output_cu.backward(grad_output)
 
-# Custom CUDA implementation
-sigma_feature_custom = torch.zeros((xyz_sampled.shape[0],), device=device)
+# Compare
+print("Forward max diff:", torch.max(torch.abs(output_pt - output_cu)).item())
+print("Input grad max diff:", torch.max(torch.abs(input_pt.grad - input_cu.grad)).item())
+print("Grid grad max diff:", torch.max(torch.abs(grid_pt.grad - grid_cu.grad)).item())
 
-for idx_plane in range(3):
-    plane_coef_point = grid_sample_cuda.forward(
-        density_plane[idx_plane], 
-        coordinate_plane[idx_plane].unsqueeze(0),
-        True  # align_corners=True
-    ).view(-1, N)
-    
-    line_coef_point = grid_sample_cuda.forward(
-        density_line[idx_plane], 
-        coordinate_line[idx_plane].unsqueeze(0),
-        True  # align_corners=True
-    ).view(-1, N)
-    
-    sigma_feature_custom += torch.sum(plane_coef_point * line_coef_point, dim=0)
-
-# PyTorch's implementation
-sigma_feature_pytorch = torch.zeros((xyz_sampled.shape[0],), device=device)
-
-for idx_plane in range(3):
-    plane_coef_point = F.grid_sample(
-        density_plane[idx_plane], 
-        coordinate_plane[idx_plane].unsqueeze(0),
-        align_corners=True
-    ).view(-1, N)
-    
-    line_coef_point = F.grid_sample(
-        density_line[idx_plane], 
-        coordinate_line[idx_plane].unsqueeze(0),
-        align_corners=True
-    ).view(-1, N)
-    
-    sigma_feature_pytorch += torch.sum(plane_coef_point * line_coef_point, dim=0)
-
-print("\nCUDA kernel implementation results:")
-print(f"- Min: {sigma_feature_custom.min().item():.6f}")
-print(f"- Max: {sigma_feature_custom.max().item():.6f}")
-print(f"- Mean: {sigma_feature_custom.mean().item():.6f}")
-print(f"- Std: {sigma_feature_custom.std().item():.6f}")
-
-print("\nPytorch implementation results:")
-print(f"- Min: {sigma_feature_pytorch.min().item():.6f}")
-print(f"- Max: {sigma_feature_pytorch.max().item():.6f}")
-print(f"- Mean: {sigma_feature_pytorch.mean().item():.6f}")
-print(f"- Std: {sigma_feature_pytorch.std().item():.6f}")
-# Compare results
-diff = torch.abs(sigma_feature_custom - sigma_feature_pytorch)
-print("Max difference:", torch.max(diff).item())
-print("Mean difference:", torch.mean(diff).item())
-
-# Check for NaN
-assert not torch.isnan(sigma_feature_custom).any(), "Custom output contains NaNs"
-assert not torch.isnan(sigma_feature_pytorch).any(), "PyTorch output contains NaNs"
+# Check for NaNs
+assert not torch.isnan(output_cu).any(), "Custom output contains NaNs"
+assert not torch.isnan(input_cu.grad).any(), "Custom input grad contains NaNs"
+assert not torch.isnan(grid_cu.grad).any(), "Custom grid grad contains NaNs"

@@ -2,76 +2,76 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <math.h>
+#include <stdio.h>
+
+__device__ __forceinline__ float grid_sampler_compute_source_index(
+    float coord, int size, bool align_corners) {
+    if (align_corners) {
+        return ((coord + 1) / 2) * (size - 1);
+    } else {
+        return ((coord + 1) * size - 1) / 2;
+    }
+}
+
+__device__ __forceinline__ bool within_bounds_2d(int h, int w, int H, int W) {
+    return h >= 0 && h < H && w >= 0 && w < W;
+}
 
 __global__ void grid_sample_kernel(
     const float* input,
     const float* grid,
     float* output,
     int N, int C, int H, int W,
-    int H_out, int W_out,
+    int out_H, int out_W,
     bool align_corners
 ) {
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_elements = N * C * H_out * W_out;
-    if (index >= total_elements) return;
+    int n = blockIdx.z;
+    int s = blockIdx.y * blockDim.y + threadIdx.y;
+    int t = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (n >= N || s >= out_H || t >= out_W) return;
 
-    int n = index / (C * H_out * W_out);
-    int c = (index % (C * H_out * W_out)) / (H_out * W_out);
-    int h = (index % (H_out * W_out)) / W_out;
-    int w = index % W_out;
-
-    int grid_offset = n * H_out * W_out * 2 + h * W_out * 2 + w * 2;
+    int grid_offset = n * out_H * out_W * 2 + s * out_W * 2 + t * 2;
     float x = grid[grid_offset];
     float y = grid[grid_offset + 1];
-
-    // Handle 1D case (line features)
-    bool is_1D = (W == 1);
-    if (is_1D) {
-        // Use only y-coordinate, set x to -1 (leftmost column)
-        x = -1.0f;
+    
+    float ix = grid_sampler_compute_source_index(x, W, align_corners);
+    float iy = grid_sampler_compute_source_index(y, H, align_corners);
+    
+    int ix_nw = static_cast<int>(floorf(ix));
+    int iy_nw = static_cast<int>(floorf(iy));
+    
+    int ix_ne = ix_nw + 1;
+    int iy_ne = iy_nw;
+    
+    int ix_sw = ix_nw;
+    int iy_sw = iy_nw + 1;
+    
+    int ix_se = ix_nw + 1;
+    int iy_se = iy_nw + 1;
+    
+    float nw = (ix_se - ix) * (iy_se - iy);
+    float ne = (ix - ix_sw) * (iy_sw - iy);
+    float sw = (ix_ne - ix) * (iy - iy_ne);
+    float se = (ix - ix_nw) * (iy - iy_nw);
+    
+    for (int c = 0; c < C; ++c) {
+        int input_offset = n * C * H * W + c * H * W;
+        
+        float nw_val = (within_bounds_2d(iy_nw, ix_nw, H, W)) ? 
+                       input[input_offset + iy_nw * W + ix_nw] : 0.0f;
+        float ne_val = (within_bounds_2d(iy_ne, ix_ne, H, W)) ? 
+                       input[input_offset + iy_ne * W + ix_ne] : 0.0f;
+        float sw_val = (within_bounds_2d(iy_sw, ix_sw, H, W)) ? 
+                       input[input_offset + iy_sw * W + ix_sw] : 0.0f;
+        float se_val = (within_bounds_2d(iy_se, ix_se, H, W)) ? 
+                       input[input_offset + iy_se * W + ix_se] : 0.0f;
+        
+        float out_val = nw_val * nw + ne_val * ne + sw_val * sw + se_val * se;
+        
+        int output_offset = n * C * out_H * out_W + c * out_H * out_W + s * out_W + t;
+        output[output_offset] = out_val;
     }
-
-    float ix, iy;
-    if (align_corners) {
-        ix = ((x + 1) / 2) * (W - 1);
-        iy = ((y + 1) / 2) * (H - 1);
-    } else {
-        ix = ((x + 1) * W - 1) / 2;
-        iy = ((y + 1) * H - 1) / 2;
-    }
-
-    int ix0 = floorf(ix);
-    int iy0 = floorf(iy);
-    int ix1 = ix0 + 1;
-    int iy1 = iy0 + 1;
-
-    float dx = ix - ix0;
-    float dy = iy - iy0;
-    float w00 = (1 - dx) * (1 - dy);
-    float w01 = dx * (1 - dy);
-    float w10 = (1 - dx) * dy;
-    float w11 = dx * dy;
-
-    int in_offset = n * C * H * W + c * H * W;
-
-    auto get_pixel = [&](int x, int y) {
-        return (x >= 0 && x < W && y >= 0 && y < H) ? 
-            input[in_offset + y * W + x] : 0.0f;
-    };
-
-    float val = w00 * get_pixel(ix0, iy0) +
-                w01 * get_pixel(ix1, iy0) +
-                w10 * get_pixel(ix0, iy1) +
-                w11 * get_pixel(ix1, iy1);
-
-    // For 1D inputs, use bilinear interpolation but ignore x-dimension
-    if (is_1D) {
-        val = (1 - dy) * get_pixel(0, iy0) + 
-              dy * get_pixel(0, iy1);
-    }
-
-    int out_offset = n * C * H_out * W_out + c * H_out * W_out + h * W_out + w;
-    output[out_offset] = val;
 }
 
 void launch_grid_sample_kernel(
@@ -79,13 +79,17 @@ void launch_grid_sample_kernel(
     const float* grid,
     float* output,
     int N, int C, int H, int W,
-    int H_out, int W_out,
+    int out_H, int out_W,
     bool align_corners
 ) {
-    int total_elements = N * C * H_out * W_out;
-    int blockSize = 256;
-    int gridSize = (total_elements + blockSize - 1) / blockSize;
-    grid_sample_kernel<<<gridSize, blockSize>>>(
-        input, grid, output, N, C, H, W, H_out, W_out, align_corners
+    dim3 threads(16, 16, 1);
+    dim3 blocks(
+        (out_W + threads.x - 1) / threads.x,
+        (out_H + threads.y - 1) / threads.y,
+        N
+    );
+    
+    grid_sample_kernel<<<blocks, threads>>>(
+        input, grid, output, N, C, H, W, out_H, out_W, align_corners
     );
 }

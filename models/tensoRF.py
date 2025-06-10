@@ -235,7 +235,7 @@ class TensorVMSplit(TensorBase):
         coordinate_plane = torch.stack((xyz_sampled[..., self.matMode[0]], xyz_sampled[..., self.matMode[1]], xyz_sampled[..., self.matMode[2]])).detach().view(3, -1, 1, 2)
         coordinate_line = torch.stack((xyz_sampled[..., self.vecMode[0]], xyz_sampled[..., self.vecMode[1]], xyz_sampled[..., self.vecMode[2]]))
         coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
-
+        coordinate_line2 = coordinate_line.unsqueeze(-1).detach().view(3, -1, 1, 1)
         sigma_feature = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
         sigma_feature2 = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
         for idx_plane in range(len(self.density_plane)):
@@ -246,7 +246,7 @@ class TensorVMSplit(TensorBase):
                                                 align_corners=True).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
             nvtx.range_push(f"grid_sample_density_line[{idx_plane}]")
-            line_coef_point = grid_sample_cuda.forward(self.density_line[idx_plane], coordinate_line[[idx_plane]],
+            line_coef_point = grid_sample_cuda.forward(self.density_line[idx_plane], coordinate_line2[[idx_plane]],
                                                        True).view(-1, *xyz_sampled.shape[:1])
             line_coef_point_act = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]],
                                             align_corners=True).view(-1, *xyz_sampled.shape[:1])
