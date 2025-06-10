@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-import grid_sample_cuda
+import cuda.grid_sample as grid_sample_cuda
 
 # Parameters
 device = "cuda"
