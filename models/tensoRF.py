@@ -237,39 +237,19 @@ class TensorVMSplit(TensorBase):
         coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
 
         sigma_feature = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
-        sigma_feature2 = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
         for idx_plane in range(len(self.density_plane)):
             nvtx.range_push(f"grid_sample_density_plane[{idx_plane}]")
             plane_coef_point = grid_sample_cuda.forward(self.density_plane[idx_plane], coordinate_plane[[idx_plane]],
                                                         True).view(-1, *xyz_sampled.shape[:1])
-            plane_coef_point_act = F.grid_sample(self.density_plane[idx_plane], coordinate_plane[[idx_plane]],
-                                                align_corners=True).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
             nvtx.range_push(f"grid_sample_density_line[{idx_plane}]")
             line_coef_point = grid_sample_cuda.forward(self.density_line[idx_plane], coordinate_line[[idx_plane]],
                                                        True).view(-1, *xyz_sampled.shape[:1])
-            line_coef_point_act = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]],
-                                            align_corners=True).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
             nvtx.range_push("combine_density_features")
             sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
-            sigma_feature2 = sigma_feature + torch.sum(plane_coef_point_act * line_coef_point_act, dim=0)
             nvtx.range_pop()
         nvtx.range_pop()
-        print("\nCUDA kernel implementation results:")
-        print(f"- Min: {sigma_feature.min().item():.6f}")
-        print(f"- Max: {sigma_feature.max().item():.6f}")
-        print(f"- Mean: {sigma_feature.mean().item():.6f}")
-        print(f"- Std: {sigma_feature.std().item():.6f}")
-        print("\nPytorch implementation results:")
-        print(f"- Min: {sigma_feature2.min().item():.6f}")
-        print(f"- Max: {sigma_feature2.max().item():.6f}")
-        print(f"- Mean: {sigma_feature2.mean().item():.6f}")
-        print(f"- Std: {sigma_feature2.std().item():.6f}")
-        # Compare results
-        diff = torch.abs(sigma_feature - sigma_feature2)
-        print("Max difference:", torch.max(diff).item())
-        print("Mean difference:", torch.mean(diff).item())
         return sigma_feature
 
     def compute_appfeature(self, xyz_sampled):
