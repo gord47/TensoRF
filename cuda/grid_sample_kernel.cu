@@ -15,18 +15,22 @@ __global__ void grid_sample_kernel(
     int total_elements = N * C * H_out * W_out;
     if (index >= total_elements) return;
 
-    // Calculate indices
     int n = index / (C * H_out * W_out);
     int c = (index % (C * H_out * W_out)) / (H_out * W_out);
     int h = (index % (H_out * W_out)) / W_out;
     int w = index % W_out;
 
-    // Grid coordinates
     int grid_offset = n * H_out * W_out * 2 + h * W_out * 2 + w * 2;
     float x = grid[grid_offset];
     float y = grid[grid_offset + 1];
 
-    // Convert to pixel coordinates
+    // Handle 1D case (line features)
+    bool is_1D = (W == 1);
+    if (is_1D) {
+        // Use only y-coordinate, set x to -1 (leftmost column)
+        x = -1.0f;
+    }
+
     float ix, iy;
     if (align_corners) {
         ix = ((x + 1) / 2) * (W - 1);
@@ -36,13 +40,11 @@ __global__ void grid_sample_kernel(
         iy = ((y + 1) * H - 1) / 2;
     }
 
-    // Corners
     int ix0 = floorf(ix);
     int iy0 = floorf(iy);
     int ix1 = ix0 + 1;
     int iy1 = iy0 + 1;
 
-    // Weights
     float dx = ix - ix0;
     float dy = iy - iy0;
     float w00 = (1 - dx) * (1 - dy);
@@ -50,22 +52,24 @@ __global__ void grid_sample_kernel(
     float w10 = (1 - dx) * dy;
     float w11 = dx * dy;
 
-    // Input offset
     int in_offset = n * C * H * W + c * H * W;
 
-    // Sample with zero-padding
     auto get_pixel = [&](int x, int y) {
         return (x >= 0 && x < W && y >= 0 && y < H) ? 
             input[in_offset + y * W + x] : 0.0f;
     };
 
-    // Interpolate
     float val = w00 * get_pixel(ix0, iy0) +
                 w01 * get_pixel(ix1, iy0) +
                 w10 * get_pixel(ix0, iy1) +
                 w11 * get_pixel(ix1, iy1);
 
-    // Output offset
+    // For 1D inputs, use bilinear interpolation but ignore x-dimension
+    if (is_1D) {
+        val = (1 - dy) * get_pixel(0, iy0) + 
+              dy * get_pixel(0, iy1);
+    }
+
     int out_offset = n * C * H_out * W_out + c * H_out * W_out + h * W_out + w;
     output[out_offset] = val;
 }
