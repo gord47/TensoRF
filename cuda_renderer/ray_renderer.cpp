@@ -19,7 +19,8 @@ std::vector<torch::Tensor> fused_ray_render_cuda_forward(
     bool white_bg,
     bool is_train,
     float distance_scale,
-    float ray_march_weight_thres);
+    float ray_march_weight_thres,
+    float density_shift);
 
 // C++ interface
 #define CHECK_CUDA(x) TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
@@ -43,7 +44,8 @@ std::vector<torch::Tensor> fused_ray_render_forward(
     bool white_bg,
     bool is_train,
     float distance_scale,
-    float ray_march_weight_thres)
+    float ray_march_weight_thres,
+    float density_shift)
 {
 
     CHECK_INPUT(rays);
@@ -58,7 +60,7 @@ std::vector<torch::Tensor> fused_ray_render_forward(
     return fused_ray_render_cuda_forward(
         rays, density_planes, density_lines, app_planes, app_lines,
         basis_mat_weight, basis_mat_bias, aabb, grid_size,
-        step_size, n_samples, white_bg, is_train, distance_scale, ray_march_weight_thres);
+        step_size, n_samples, white_bg, is_train, distance_scale, ray_march_weight_thres, density_shift);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)

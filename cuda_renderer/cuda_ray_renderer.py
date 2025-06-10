@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from typing import Optional, Tuple
 import numpy as np
+from .cuda_ray_autograd import cuda_ray_render_autograd
 
 class CudaRayRenderer:
     """
@@ -132,31 +133,31 @@ class CudaRayRenderer:
         step_size = tensorf_model.stepSize
         distance_scale = tensorf_model.distance_scale
         ray_march_weight_thres = tensorf_model.rayMarch_weight_thres
+        density_shift = tensorf_model.density_shift  # Add density_shift parameter
         
         if N_samples <= 0:
             N_samples = tensorf_model.nSamples
         
-        # Call CUDA kernel - no fallback on failure
-        result = self.cuda_module.forward(
-            rays.contiguous(),
-            density_planes.contiguous(),
-            density_lines.contiguous(), 
-            app_planes.contiguous(),
-            app_lines.contiguous(),
-            basis_weight.contiguous(),
-            basis_bias.contiguous(),
-            aabb.contiguous(),
-            grid_size.contiguous(),
+        # Call CUDA kernel with autograd support - no fallback on failure
+        rgb_maps, depth_maps = cuda_ray_render_autograd(
+            rays,
+            density_planes,
+            density_lines,
+            app_planes,
+            app_lines,
+            basis_weight,
+            basis_bias,
+            aabb,
+            grid_size,
             step_size,
             N_samples,
             white_bg,
             is_train,
             distance_scale,
-            ray_march_weight_thres
+            ray_march_weight_thres,
+            density_shift,
+            self.cuda_module
         )
-        
-        rgb_maps = result[0]  # [N, 3]
-        depth_maps = result[1]  # [N]
         
         return rgb_maps, depth_maps
     

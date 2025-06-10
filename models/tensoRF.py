@@ -142,8 +142,13 @@ class TensorVMSplit(TensorBase):
 
 
     def init_svd_volume(self, res, device):
-        self.density_plane, self.density_line = self.init_one_svd(self.density_n_comp, self.gridSize, 0.1, device)
-        self.app_plane, self.app_line = self.init_one_svd(self.app_n_comp, self.gridSize, 0.1, device)
+        # Use larger initialization scale for density to compensate for density_shift
+        # With density_shift=-10, we need larger initial values to produce meaningful alphas
+        density_scale = 0.5  # Increased from 0.1 to help with training start
+        app_scale = 0.1      # Keep original scale for appearance
+        
+        self.density_plane, self.density_line = self.init_one_svd(self.density_n_comp, self.gridSize, density_scale, device)
+        self.app_plane, self.app_line = self.init_one_svd(self.app_n_comp, self.gridSize, app_scale, device)
         self.basis_mat = torch.nn.Linear(sum(self.app_n_comp), self.app_dim, bias=False).to(device)
 
 

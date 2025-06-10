@@ -10,3 +10,5 @@ log
 *.pyd
 *.exp
 jit_build_fixed
+*.obj
+build

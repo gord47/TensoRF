@@ -18,44 +18,103 @@ except Exception as e:
     CUDA_RENDERER_AVAILABLE = False
     cuda_renderer = None
     # Note: We don't raise here to allow import, but functions will fail when called
+def OctreeRender_trilinear_fast_pytorch(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray=False, white_bg=True, is_train=False, device='cuda'):
+    """
+    Pure PyTorch version of the ray renderer. This is a fallback for when CUDA is not available.
+    It will be slower than the CUDA version but can run on CPU or GPU.
+    """
+    nvtx.range_push("OctreeRender_trilinear_fast_pytorch")
+    rgbs, alphas, depth_maps, weights, uncertainties = [], [], [], [], []
+    N_rays_all = rays.shape[0]
+    for chunk_idx in range(N_rays_all // chunk + int(N_rays_all % chunk > 0)):
+        nvtx.range_push(f"Process chunk {chunk_idx}")
+        rays_chunk = rays[chunk_idx * chunk:(chunk_idx + 1) * chunk].to(device)
+    
+        nvtx.range_push("TensorRF forward")
+        rgb_map, depth_map = tensorf(rays_chunk, is_train=is_train, white_bg=white_bg, ndc_ray=ndc_ray, N_samples=N_samples)
+        nvtx.range_pop()  # TensorRF forward
 
+        rgbs.append(rgb_map)
+        depth_maps.append(depth_map)
+        nvtx.range_pop()  # Process chunk
+    nvtx.range_pop()
+    return torch.cat(rgbs), None, torch.cat(depth_maps), None, None
 
 def OctreeRender_trilinear_fast(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray=False, white_bg=True, is_train=False, device='cuda'):
     """
-    CUDA-only version of the ray renderer (no fallback).
-    
-    This function requires CUDA acceleration and will fail if CUDA is not available.
-    Use OctreeRender_trilinear_fast_cuda for the same functionality with better error messages.
+    Hybrid version - tries PyTorch first, falls back to CUDA if PyTorch fails, then raises error if both fail.
+    Set environment variable USE_PYTORCH_RENDERER=1 to force PyTorch version.
+    Set environment variable USE_CUDA_RENDERER=1 to force CUDA version.
     """
-    nvtx.range_push("OctreeRender_trilinear_fast")
+    import os
     
-    if not CUDA_RENDERER_AVAILABLE:
-        raise RuntimeError("CUDA Ray Renderer is not available. Training requires CUDA acceleration.")
+    # Check environment variables for forced renderer selection
+    force_pytorch = os.getenv('USE_PYTORCH_RENDERER', '0') == '1'
+    force_cuda = os.getenv('USE_CUDA_RENDERER', '0') == '1'
     
-    if not cuda_renderer.cuda_available:
-        raise RuntimeError("CUDA Ray Renderer failed to initialize. Training requires CUDA acceleration.")
+    if force_pytorch:
+        print("Using PyTorch renderer (forced by USE_PYTORCH_RENDERER=1)")
+        return OctreeRender_trilinear_fast_pytorch(rays, tensorf, chunk, N_samples, ndc_ray, white_bg, is_train, device)
+    
+    if force_cuda:
+        print("Using CUDA renderer (forced by USE_CUDA_RENDERER=1)")
+        if not CUDA_RENDERER_AVAILABLE:
+            raise RuntimeError("CUDA Ray Renderer is not available. Training requires CUDA acceleration.")
         
-    if ndc_ray:
-        raise NotImplementedError("NDC rays are not yet supported in CUDA implementation")
+        if not cuda_renderer.cuda_available:
+            raise RuntimeError("CUDA Ray Renderer failed to initialize. Training requires CUDA acceleration.")
+            
+        if ndc_ray:
+            raise NotImplementedError("NDC rays are not yet supported in CUDA implementation")
+        
+        try:
+            nvtx.range_push("CUDA Ray Rendering")
+            rgb_maps, depth_maps = cuda_renderer.render_rays(
+                rays=rays.to(device), 
+                tensorf_model=tensorf,
+                chunk=chunk,
+                N_samples=N_samples,
+                white_bg=white_bg,
+                is_train=is_train
+            )
+            nvtx.range_pop()
+            return rgb_maps, None, depth_maps, None, None
+        except Exception as e:
+            nvtx.range_pop()
+            raise RuntimeError(f"CUDA rendering failed: {e}")
     
+    # Default behavior: try PyTorch first, then CUDA
     try:
-        nvtx.range_push("CUDA Ray Rendering")
-        # Use CUDA renderer for all rays at once (no chunking needed)
-        rgb_maps, depth_maps = cuda_renderer.render_rays(
-            rays=rays.to(device), 
-            tensorf_model=tensorf,
-            chunk=chunk,
-            N_samples=N_samples,
-            white_bg=white_bg,
-            is_train=is_train
-        )
-        nvtx.range_pop()
-        nvtx.range_pop()
-        return rgb_maps, None, depth_maps, None, None
-    except Exception as e:
-        nvtx.range_pop()
-        nvtx.range_pop()
-        raise RuntimeError(f"CUDA rendering failed: {e}")
+        print("Trying PyTorch renderer...")
+        return OctreeRender_trilinear_fast_pytorch(rays, tensorf, chunk, N_samples, ndc_ray, white_bg, is_train, device)
+    except Exception as pytorch_error:
+        print(f"PyTorch renderer failed: {pytorch_error}")
+        print("Falling back to CUDA renderer...")
+        
+        if not CUDA_RENDERER_AVAILABLE:
+            raise RuntimeError(f"Both PyTorch and CUDA renderers failed. PyTorch error: {pytorch_error}. CUDA not available.")
+        
+        if not cuda_renderer.cuda_available:
+            raise RuntimeError(f"Both PyTorch and CUDA renderers failed. PyTorch error: {pytorch_error}. CUDA failed to initialize.")
+            
+        if ndc_ray:
+            raise NotImplementedError("NDC rays are not yet supported in CUDA implementation")
+        
+        try:
+            nvtx.range_push("CUDA Ray Rendering")
+            rgb_maps, depth_maps = cuda_renderer.render_rays(
+                rays=rays.to(device), 
+                tensorf_model=tensorf,
+                chunk=chunk,
+                N_samples=N_samples,
+                white_bg=white_bg,
+                is_train=is_train
+            )
+            nvtx.range_pop()
+            return rgb_maps, None, depth_maps, None, None
+        except Exception as cuda_error:
+            nvtx.range_pop()
+            raise RuntimeError(f"Both renderers failed. PyTorch: {pytorch_error}. CUDA: {cuda_error}")
 
 def OctreeRender_trilinear_fast_cuda(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray=False, white_bg=True, is_train=False, device='cuda'):
     """

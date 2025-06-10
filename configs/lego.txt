@@ -1,16 +1,16 @@
 
 dataset_name = blender
 datadir = ./data/nerf_synthetic/lego
-expname =  lego_pytorch_v15k
+expname =  lego_pytorch_v15k_psnr
 basedir = ./log
 
-n_iters = 15000
+n_iters = 5000
 batch_size = 2048
 
 N_voxel_init = 2097156 # 128**3
 N_voxel_final = 27000000 # 300**3
-upsamp_list = [1000,3000,4000,5000,7000]
-update_AlphaMask_list = [5000,8000]
+upsamp_list = [2000,3000,4000,5000,7000,9000,12000]
+update_AlphaMask_list = [2000,5500,8000,11000]
 
 N_vis = 5
 vis_every = 10000
@@ -31,6 +31,12 @@ fea_pe = 2
 L1_weight_inital = 8e-5
 L1_weight_rest = 4e-5
 rm_weight_mask_thre = 1e-6
+
+# Density shift - controls baseline density level (CUDA now matches PyTorch)
+density_shift = -10
+
+# Alpha mask threshold - controls voxel pruning during training  
+alpha_mask_thre = 0.001
 
 ## please uncomment following configuration if hope to training on cp model
 #model_name = TensorCP

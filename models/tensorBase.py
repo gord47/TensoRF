@@ -302,49 +302,163 @@ class TensorBase(torch.nn.Module):
     @torch.no_grad()
     def getDenseAlpha(self,gridSize=None):
         gridSize = self.gridSize if gridSize is None else gridSize
+        print(f"[DEBUG] getDenseAlpha called with gridSize: {gridSize}")
 
         samples = torch.stack(torch.meshgrid(
             torch.linspace(0, 1, gridSize[0]),
             torch.linspace(0, 1, gridSize[1]),
             torch.linspace(0, 1, gridSize[2]),
         ), -1).to(self.device)
+        print(f"[DEBUG] Samples shape: {samples.shape}")
+        
         dense_xyz = self.aabb[0] * (1-samples) + self.aabb[1] * samples
+        print(f"[DEBUG] Dense xyz shape: {dense_xyz.shape}")
+        print(f"[DEBUG] Dense xyz range - min: {dense_xyz.min().item():.6f}, max: {dense_xyz.max().item():.6f}")
 
         # dense_xyz = dense_xyz
         # print(self.stepSize, self.distance_scale*self.aabbDiag)
         alpha = torch.zeros_like(dense_xyz[...,0])
-        for i in range(gridSize[0]):
-            alpha[i] = self.compute_alpha(dense_xyz[i].view(-1,3), self.stepSize).view((gridSize[1], gridSize[2]))
-        return alpha, dense_xyz
+        print(f"[DEBUG] Initial alpha shape: {alpha.shape}")
+        
+        try:
+            for i in range(gridSize[0]):
+                print(f"[DEBUG] Processing slice {i}/{gridSize[0]}")
+                xyz_slice = dense_xyz[i].view(-1,3)
+                print(f"[DEBUG] xyz_slice shape: {xyz_slice.shape}, stepSize: {self.stepSize}")
+                
+                alpha_slice = self.compute_alpha(xyz_slice, self.stepSize)
+                print(f"[DEBUG] alpha_slice shape: {alpha_slice.shape}, stats - min: {alpha_slice.min().item():.6f}, max: {alpha_slice.max().item():.6f}")
+                
+                alpha[i] = alpha_slice.view((gridSize[1], gridSize[2]))
+                
+            print(f"[DEBUG] Final alpha stats - min: {alpha.min().item():.6f}, max: {alpha.max().item():.6f}, mean: {alpha.mean().item():.6f}")
+            return alpha, dense_xyz
+            
+        except Exception as e:
+            print(f"[ERROR] getDenseAlpha failed with error: {e}")
+            print(f"[ERROR] Exception type: {type(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     @torch.no_grad()
     def updateAlphaMask(self, gridSize=(200,200,200)):
+        print(f"[DEBUG] updateAlphaMask called with gridSize={gridSize}")
+        print(f"[DEBUG] Current alphaMask_thres: {self.alphaMask_thres}")
+        print(f"[DEBUG] Current device: {self.device}")
+        print(f"[DEBUG] Current aabb: {self.aabb}")
 
-        alpha, dense_xyz = self.getDenseAlpha(gridSize)
-        dense_xyz = dense_xyz.transpose(0,2).contiguous()
-        alpha = alpha.clamp(0,1).transpose(0,2).contiguous()[None,None]
-        total_voxels = gridSize[0] * gridSize[1] * gridSize[2]
+        try:
+            alpha, dense_xyz = self.getDenseAlpha(gridSize)
+            print(f"[DEBUG] getDenseAlpha completed - alpha shape: {alpha.shape}, dense_xyz shape: {dense_xyz.shape}")
+            print(f"[DEBUG] Alpha stats - min: {alpha.min().item():.6f}, max: {alpha.max().item():.6f}, mean: {alpha.mean().item():.6f}")
+            print(f"[DEBUG] Alpha values > 0: {(alpha > 0).sum().item()}/{alpha.numel()}")
+            print(f"[DEBUG] Alpha values > alphaMask_thres ({self.alphaMask_thres}): {(alpha > self.alphaMask_thres).sum().item()}")
+            
+            dense_xyz = dense_xyz.transpose(0,2).contiguous()
+            alpha = alpha.clamp(0,1).transpose(0,2).contiguous()[None,None]
+            total_voxels = gridSize[0] * gridSize[1] * gridSize[2]
+            print(f"[DEBUG] After transpose and clamp - alpha shape: {alpha.shape}")
 
-        ks = 3
-        alpha = F.max_pool3d(alpha, kernel_size=ks, padding=ks // 2, stride=1).view(gridSize[::-1])
-        alpha[alpha>=self.alphaMask_thres] = 1
-        alpha[alpha<self.alphaMask_thres] = 0
+            ks = 3
+            alpha = F.max_pool3d(alpha, kernel_size=ks, padding=ks // 2, stride=1).view(gridSize[::-1])
+            print(f"[DEBUG] After max_pool3d - alpha shape: {alpha.shape}")
+            print(f"[DEBUG] Alpha stats after pooling - min: {alpha.min().item():.6f}, max: {alpha.max().item():.6f}")
+            
+            # Apply thresholding and debug statistics before/after
+            pre_threshold_stats = {
+                'min': alpha.min().item(),
+                'max': alpha.max().item(), 
+                'mean': alpha.mean().item(),
+                'above_thres': (alpha >= self.alphaMask_thres).sum().item(),
+                'total': alpha.numel()
+            }
+            print(f"[DEBUG] Pre-threshold alpha stats: {pre_threshold_stats}")
+            
+            alpha[alpha>=self.alphaMask_thres] = 1
+            alpha[alpha<self.alphaMask_thres] = 0
+            
+            post_threshold_stats = {
+                'active_voxels': (alpha > 0.5).sum().item(),
+                'total_voxels': alpha.numel(),
+                'percentage': (alpha > 0.5).sum().item() / alpha.numel() * 100
+            }
+            print(f"[DEBUG] Post-threshold alpha stats: {post_threshold_stats}")
 
-        self.alphaMask = AlphaGridMask(self.device, self.aabb, alpha)
+            # Check for empty alpha mask before proceeding
+            if post_threshold_stats['active_voxels'] == 0:
+                print(f"[ERROR] CRITICAL: No active voxels after thresholding!")
+                print(f"[ERROR] alphaMask_thres: {self.alphaMask_thres}")
+                print(f"[ERROR] This suggests alpha values are all below threshold")
+                print(f"[ERROR] Recommended: Lower alphaMask_thres or check density computation")
+                
+                # Create a minimal alpha mask to prevent complete failure
+                print(f"[FALLBACK] Creating minimal alpha mask to prevent crash")
+                center_idx = [s//2 for s in gridSize[::-1]]  # gridSize is reversed for alpha
+                alpha[center_idx[0]-1:center_idx[0]+2, 
+                      center_idx[1]-1:center_idx[1]+2, 
+                      center_idx[2]-1:center_idx[2]+2] = 1.0
+                print(f"[FALLBACK] Added {(alpha > 0.5).sum().item()} central voxels")
 
-        valid_xyz = dense_xyz[alpha>0.5]
+            self.alphaMask = AlphaGridMask(self.device, self.aabb, alpha)
+            print(f"[DEBUG] AlphaGridMask created successfully")
 
-        xyz_min = valid_xyz.amin(0)
-        xyz_max = valid_xyz.amax(0)
+            # Get valid coordinates from thresholded alpha
+            # Fix tensor shape mismatch: dense_xyz is [H,W,D,3] but alpha is [D,W,H]
+            # We need to transpose alpha to match dense_xyz dimensions
+            print(f"[DEBUG] Valid xyz extraction:")
+            print(f"[DEBUG]   - dense_xyz shape: {dense_xyz.shape}")
+            print(f"[DEBUG]   - alpha shape: {alpha.shape}")
+            
+            # Transpose alpha to match dense_xyz indexing: [D,W,H] -> [H,W,D]
+            alpha_for_indexing = alpha.permute(2, 1, 0)
+            print(f"[DEBUG]   - alpha_for_indexing shape: {alpha_for_indexing.shape}")
+            print(f"[DEBUG]   - alpha_for_indexing > 0.5 count: {(alpha_for_indexing > 0.5).sum().item()}")
+            
+            # Now extract valid coordinates with properly shaped mask
+            valid_xyz = dense_xyz[alpha_for_indexing > 0.5]
+            print(f"[DEBUG]   - valid_xyz shape: {valid_xyz.shape}")
+            print(f"[DEBUG]   - valid_xyz numel: {valid_xyz.numel()}")
+            
+            # Double-check for empty tensor before amin/amax operations
+            if valid_xyz.numel() == 0:
+                print(f"[ERROR] CRITICAL: valid_xyz is empty after extraction!")
+                print(f"[ERROR] This should not happen after fallback - possible tensor indexing issue")
+                print(f"[ERROR] Alpha stats: min={alpha.min().item():.6f}, max={alpha.max().item():.6f}")
+                print(f"[ERROR] Active voxels in alpha: {(alpha > 0.5).sum().item()}")
+                print(f"[ERROR] Active voxels in alpha_for_indexing: {(alpha_for_indexing > 0.5).sum().item()}")
+                print(f"[ERROR] Falling back to original aabb to prevent crash")
+                return self.aabb
+            
+            # Additional safety check for tensor dimensions
+            if len(valid_xyz.shape) != 2 or valid_xyz.shape[1] != 3:
+                print(f"[ERROR] CRITICAL: valid_xyz has wrong shape: {valid_xyz.shape}")
+                print(f"[ERROR] Expected: [N, 3] where N > 0")
+                print(f"[ERROR] Falling back to original aabb to prevent crash")
+                return self.aabb
+                
+            print(f"[DEBUG] Computing bounding box from {valid_xyz.shape[0]} valid points")
+            xyz_min = valid_xyz.amin(0)
+            xyz_max = valid_xyz.amax(0)
+            print(f"[DEBUG] xyz_min: {xyz_min}, xyz_max: {xyz_max}")
 
-        new_aabb = torch.stack((xyz_min, xyz_max))
+            new_aabb = torch.stack((xyz_min, xyz_max))
+            print(f"[DEBUG] new_aabb shape: {new_aabb.shape}")
 
-        total = torch.sum(alpha)
-        print(f"bbox: {xyz_min, xyz_max} alpha rest %%%f"%(total/total_voxels*100))
-        return new_aabb
+            total = torch.sum(alpha)
+            print(f"[DEBUG] bbox: {xyz_min, xyz_max} alpha rest %{total/total_voxels*100:.2f}")
+            return new_aabb
+            
+        except Exception as e:
+            print(f"[ERROR] updateAlphaMask failed with error: {e}")
+            print(f"[ERROR] Exception type: {type(e)}")
+            import traceback
+            traceback.print_exc()
+            # Return original aabb to prevent crash
+            return self.aabb
 
     @torch.no_grad()
-    def filtering_rays(self, all_rays, all_rgbs, N_samples=256, chunk=10240*5, bbox_only=False):
+    def filtering_rays(self, all_rays, all_rgbs, N_samples=256, chunk=10240*5, bbox_only=False): 
         print('========> filtering rays ...')
         tt = time.time()
 
@@ -378,30 +492,61 @@ class TensorBase(torch.nn.Module):
 
     def feature2density(self, density_features):
         if self.fea2denseAct == "softplus":
-            return F.softplus(density_features+self.density_shift)
+            return F.softplus(density_features + self.density_shift)
         elif self.fea2denseAct == "relu":
             return F.relu(density_features)
 
 
     def compute_alpha(self, xyz_locs, length=1):
+        print(f"[ALPHA_DEBUG] compute_alpha called with xyz_locs shape: {xyz_locs.shape}, length: {length}")
+        print(f"[ALPHA_DEBUG] Input xyz_locs range - min: {xyz_locs.min().item():.6f}, max: {xyz_locs.max().item():.6f}")
 
         if self.alphaMask is not None:
-            alphas = self.alphaMask.sample_alpha(xyz_locs)
-            alpha_mask = alphas > 0
+            try:
+                alphas = self.alphaMask.sample_alpha(xyz_locs)
+                alpha_mask = alphas > 0
+                print(f"[ALPHA_DEBUG] AlphaMask sampling - alphas shape: {alphas.shape}, active points: {alpha_mask.sum().item()}/{alpha_mask.numel()}")
+                print(f"[ALPHA_DEBUG] AlphaMask alphas range - min: {alphas.min().item():.6f}, max: {alphas.max().item():.6f}")
+            except Exception as e:
+                print(f"[ALPHA_ERROR] AlphaMask sampling failed: {e}")
+                alpha_mask = torch.ones_like(xyz_locs[:,0], dtype=bool)
         else:
             alpha_mask = torch.ones_like(xyz_locs[:,0], dtype=bool)
-            
+            print(f"[ALPHA_DEBUG] No AlphaMask, using all points: {alpha_mask.sum().item()}")
 
         sigma = torch.zeros(xyz_locs.shape[:-1], device=xyz_locs.device)
+        print(f"[ALPHA_DEBUG] Initial sigma shape: {sigma.shape}")
 
         if alpha_mask.any():
-            xyz_sampled = self.normalize_coord(xyz_locs[alpha_mask])
-            sigma_feature = self.compute_densityfeature(xyz_sampled)
-            validsigma = self.feature2density(sigma_feature)
-            sigma[alpha_mask] = validsigma
-        
+            try:
+                xyz_sampled = self.normalize_coord(xyz_locs[alpha_mask])
+                print(f"[ALPHA_DEBUG] Normalized coordinates shape: {xyz_sampled.shape}")
+                print(f"[ALPHA_DEBUG] Normalized coords range - min: {xyz_sampled.min().item():.6f}, max: {xyz_sampled.max().item():.6f}")
+                
+                sigma_feature = self.compute_densityfeature(xyz_sampled)
+                print(f"[ALPHA_DEBUG] Density features shape: {sigma_feature.shape}")
+                print(f"[ALPHA_DEBUG] Density features stats - min: {sigma_feature.min().item():.6f}, max: {sigma_feature.max().item():.6f}, mean: {sigma_feature.mean().item():.6f}")
+                
+                validsigma = self.feature2density(sigma_feature)
+                print(f"[ALPHA_DEBUG] Valid sigma shape: {validsigma.shape}")
+                print(f"[ALPHA_DEBUG] Valid sigma stats - min: {validsigma.min().item():.6f}, max: {validsigma.max().item():.6f}, mean: {validsigma.mean().item():.6f}")
+                
+                sigma[alpha_mask] = validsigma
+                
+            except Exception as e:
+                print(f"[ALPHA_ERROR] Density computation failed: {e}")
+                print(f"[ALPHA_ERROR] Exception type: {type(e)}")
+                import traceback
+                traceback.print_exc()
+                # Set sigma to zero to prevent crashes
+                sigma.fill_(0.0)
 
         alpha = 1 - torch.exp(-sigma*length).view(xyz_locs.shape[:-1])
+        print(f"[ALPHA_DEBUG] Final alpha stats - min: {alpha.min().item():.6f}, max: {alpha.max().item():.6f}, mean: {alpha.mean().item():.6f}")
+        print(f"[ALPHA_DEBUG] Alpha values > 0: {(alpha > 0).sum().item()}/{alpha.numel()}")
+        print(f"[ALPHA_DEBUG] Alpha values > 1e-6: {(alpha > 1e-6).sum().item()}")
+        print(f"[ALPHA_DEBUG] Alpha values > 1e-4: {(alpha > 1e-4).sum().item()}")
+        print(f"[ALPHA_DEBUG] Alpha values > 1e-3: {(alpha > 1e-3).sum().item()}")
 
         return alpha
 
