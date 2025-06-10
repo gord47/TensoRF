@@ -9,8 +9,9 @@ torch::Tensor grid_sample_cuda_forward(
     torch::Tensor grid,
     bool align_corners
 ) {
-    AT_CHECK(input.requires_grad() == false, "input must not require grad");
-    AT_CHECK(grid.requires_grad() == false, "grid must not require grad");
+    // Replace AT_CHECK with TORCH_CHECK
+    TORCH_CHECK(input.requires_grad() == false, "input must not require grad");
+    TORCH_CHECK(grid.requires_grad() == false, "grid must not require grad");
     
     auto N = input.size(0);
     auto C = input.size(1);
