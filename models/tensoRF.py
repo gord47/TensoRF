@@ -241,14 +241,14 @@ class TensorVMSplit(TensorBase):
             nvtx.range_push(f"grid_sample_density_plane[{idx_plane}]")
             plane_coef_point = grid_sample_cuda.forward(
                 self.density_plane[idx_plane], 
-                coordinate_plane[idx_plane].unsqueeze(0),
+                coordinate_plane[[idx_plane]],
                 True  # align_corners=True
             ).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
             nvtx.range_push(f"grid_sample_density_line[{idx_plane}]")
             line_coef_point = grid_sample_cuda.forward(
                 self.density_line[idx_plane], 
-                coordinate_line[idx_plane].unsqueeze(0),
+                coordinate_line[[idx_plane]],
                 True  # align_corners=True
             ).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
