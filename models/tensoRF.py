@@ -1,6 +1,6 @@
 from .tensorBase import *
 import torch.cuda.nvtx as nvtx
-from cuda import fused_plane_line
+# from cuda import fused_plane_line
 import cuda.grid_sample as grid_sample_cuda
 
 class TensorVM(TensorBase):
