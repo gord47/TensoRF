@@ -1,5 +1,8 @@
 #include <torch/extension.h>
-#include "grid_sample_kernel.h"
+
+void launch_grid_sample_kernel(
+    const float* input, const float* grid, float* output,
+    int N, int C, int H, int W, int H_out, int W_out, bool align_corners);
 
 torch::Tensor grid_sample_cuda_forward(
     torch::Tensor input,
