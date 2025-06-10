@@ -1,6 +1,7 @@
 from .tensorBase import *
 import torch.cuda.nvtx as nvtx
 from cuda import fused_plane_line
+import cuda.grid_sample as grid_sample_cuda
 
 class TensorVM(TensorBase):
     def __init__(self, aabb, gridSize, device, **kargs):
@@ -230,49 +231,30 @@ class TensorVMSplit(TensorBase):
 
     def compute_densityfeature(self, xyz_sampled):
         nvtx.range_push("compute_densityfeature")
-        B = xyz_sampled.shape[0]
-        device = xyz_sampled.device
-        
-        # Prepare coordinates for each component
-        coord_planes = []
-        coord_lines = []
-        planes = []
-        lines = []
-        
-        for i in range(3):
-            # Get coordinates for the current axis
-            coord_plane = xyz_sampled[..., self.matMode[i]].detach().contiguous().to(device)
-            coord_line = xyz_sampled[..., self.vecMode[i]].detach().contiguous().to(device)
-            
-            # Format plane coordinates: [N, 2]
-            coord_planes.append(coord_plane)
-            
-            # Format line coordinates: [N]
-            coord_lines.append(coord_line)
-            
-            # Get the current plane and line
-            plane = self.density_plane[i].contiguous()  # [1, C, H, W]
-            line = self.density_line[i].contiguous()    # [1, C, L, 1]
-            # print(f"plane dimension: {plane.dim()}")
-            # print(f"line dimension: {line.dim()}")
-            planes.append(plane)
-            lines.append(line)
-        
-        # Stack coordinates into the format expected by our custom forward function
-        coords_plane_stacked = torch.stack(coord_planes, dim=0)  # [3, N, 2]
-        coords_line_stacked = torch.stack(coord_lines, dim=0)    # [3, N]
-        # print("coord_plane range:", coords_plane_stacked.min().item(), coords_plane_stacked.max().item())
-        # print("coord_line range:", coords_line_stacked.min().item(), coords_line_stacked.max().item())
-        # for i, plane in enumerate(self.density_plane):
-        #     print(f"density_plane[{i}] min={plane.min().item():.6f}, max={plane.max().item():.6f}, mean={plane.mean().item():.6f}")
-# 
-        # for i, line in enumerate(self.density_line):
-        #     print(f"density_line[{i}] min={line.min().item():.6f}, max={line.max().item():.6f}, mean={line.mean().item():.6f}")
-        # Use our custom forward function that handles tensors of different sizes
-        nvtx.range_push("fused_plane_line_split_forward")
-        sigma_feature = fused_plane_line.forward_split(planes, lines, coords_plane_stacked, coords_line_stacked)
-        nvtx.range_pop()
-        # print("sigma_feature:", sigma_feature.min().item(), sigma_feature.max().item(), sigma_feature.shape)
+        # plane + line basis
+        coordinate_plane = torch.stack((xyz_sampled[..., self.matMode[0]], xyz_sampled[..., self.matMode[1]], xyz_sampled[..., self.matMode[2]])).detach().view(3, -1, 1, 2)
+        coordinate_line = torch.stack((xyz_sampled[..., self.vecMode[0]], xyz_sampled[..., self.vecMode[1]], xyz_sampled[..., self.vecMode[2]]))
+        coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
+
+        sigma_feature = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
+        for idx_plane in range(len(self.density_plane)):
+            nvtx.range_push(f"grid_sample_density_plane[{idx_plane}]")
+            plane_coef_point = grid_sample_cuda.forward(
+                self.density_plane[idx_plane], 
+                coordinate_plane[idx_plane].unsqueeze(0),
+                True  # align_corners=True
+            ).view(-1, *xyz_sampled.shape[:1])
+            nvtx.range_pop()
+            nvtx.range_push(f"grid_sample_density_line[{idx_plane}]")
+            line_coef_point = grid_sample_cuda.forward(
+                self.density_line[idx_plane], 
+                coordinate_line[idx_plane].unsqueeze(0),
+                True  # align_corners=True
+            ).view(-1, *xyz_sampled.shape[:1])
+            nvtx.range_pop()
+            nvtx.range_push("combine_density_features")
+            sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
+            nvtx.range_pop()
         nvtx.range_pop()
         return sigma_feature
 
