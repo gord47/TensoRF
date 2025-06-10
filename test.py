@@ -65,6 +65,17 @@ for idx_plane in range(3):
     
     sigma_feature_pytorch += torch.sum(plane_coef_point * line_coef_point, dim=0)
 
+print("\nCUDA kernel implementation results:")
+print(f"- Min: {sigma_feature_custom.min().item():.6f}")
+print(f"- Max: {sigma_feature_custom.max().item():.6f}")
+print(f"- Mean: {sigma_feature_custom.mean().item():.6f}")
+print(f"- Std: {sigma_feature_custom.std().item():.6f}")
+
+print("\nPytorch implementation results:")
+print(f"- Min: {sigma_feature_pytorch.min().item():.6f}")
+print(f"- Max: {sigma_feature_pytorch.max().item():.6f}")
+print(f"- Mean: {sigma_feature_pytorch.mean().item():.6f}")
+print(f"- Std: {sigma_feature_pytorch.std().item():.6f}")
 # Compare results
 diff = torch.abs(sigma_feature_custom - sigma_feature_pytorch)
 print("Max difference:", torch.max(diff).item())
