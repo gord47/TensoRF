@@ -4,3 +4,6 @@ data
 __pycache__
 log
 *.nsys-rep
+checkpoint
+*.DS_Store
+*.th

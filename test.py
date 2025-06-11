@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 import cuda.grid_sample as grid_sample_cuda
+import torch.cuda.nvtx as nvtx
+import time
 
 # Parameters
 device = "cuda"
@@ -32,6 +34,9 @@ coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_lin
 # Custom CUDA implementation
 sigma_feature_custom = torch.zeros((xyz_sampled.shape[0],), device=device)
 
+torch.cuda.synchronize()
+nvtx.range_push("custom_cuda_grid_sample")
+t0 = time.time()
 for idx_plane in range(3):
     plane_coef_point = grid_sample_cuda.forward(
         density_plane[idx_plane], 
@@ -46,10 +51,17 @@ for idx_plane in range(3):
     ).view(-1, N)
     
     sigma_feature_custom += torch.sum(plane_coef_point * line_coef_point, dim=0)
+torch.cuda.synchronize()
+t1 = time.time()
+nvtx.range_pop()
+print(f"Custom CUDA grid_sample time: {t1-t0:.6f} seconds")
 
 # PyTorch's implementation
 sigma_feature_pytorch = torch.zeros((xyz_sampled.shape[0],), device=device)
 
+torch.cuda.synchronize()
+nvtx.range_push("pytorch_grid_sample")
+t0 = time.time()
 for idx_plane in range(3):
     plane_coef_point = F.grid_sample(
         density_plane[idx_plane], 
@@ -64,6 +76,10 @@ for idx_plane in range(3):
     ).view(-1, N)
     
     sigma_feature_pytorch += torch.sum(plane_coef_point * line_coef_point, dim=0)
+torch.cuda.synchronize()
+t1 = time.time()
+nvtx.range_pop()
+print(f"PyTorch grid_sample time: {t1-t0:.6f} seconds")
 
 print("\nCUDA kernel implementation results:")
 print(f"- Min: {sigma_feature_custom.min().item():.6f}")

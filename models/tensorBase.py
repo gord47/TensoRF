@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from .sh import eval_sh_bases
 import numpy as np
 import time
+import torch.cuda.nvtx as nvtx
 
 
 def positional_encoding(positions, freqs):
@@ -407,8 +408,9 @@ class TensorBase(torch.nn.Module):
 
 
     def forward(self, rays_chunk, white_bg=True, is_train=False, ndc_ray=False, N_samples=-1):
-
+        nvtx.range_push("TensorBase.forward")
         # sample points
+        nvtx.range_push("sample_points")
         viewdirs = rays_chunk[:, 3:6]
         if ndc_ray:
             xyz_sampled, z_vals, ray_valid = self.sample_ray_ndc(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples)
@@ -420,47 +422,56 @@ class TensorBase(torch.nn.Module):
             xyz_sampled, z_vals, ray_valid = self.sample_ray(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples)
             dists = torch.cat((z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1)
         viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape)
+        nvtx.range_pop()  # sample_points
         
         if self.alphaMask is not None:
+            nvtx.range_push("alpha_mask")
             alphas = self.alphaMask.sample_alpha(xyz_sampled[ray_valid])
             alpha_mask = alphas > 0
             ray_invalid = ~ray_valid
             ray_invalid[ray_valid] |= (~alpha_mask)
             ray_valid = ~ray_invalid
+            nvtx.range_pop()  # alpha_mask
 
-
+        nvtx.range_push("init_sigma_rgb")
         sigma = torch.zeros(xyz_sampled.shape[:-1], device=xyz_sampled.device)
         rgb = torch.zeros((*xyz_sampled.shape[:2], 3), device=xyz_sampled.device)
+        nvtx.range_pop()  # init_sigma_rgb
 
         if ray_valid.any():
+            nvtx.range_push("density_feature")
             xyz_sampled = self.normalize_coord(xyz_sampled)
             sigma_feature = self.compute_densityfeature(xyz_sampled[ray_valid])
-
             validsigma = self.feature2density(sigma_feature)
             sigma[ray_valid] = validsigma
+            nvtx.range_pop()  # density_feature
 
-
+        nvtx.range_push("raw2alpha")
         alpha, weight, bg_weight = raw2alpha(sigma, dists * self.distance_scale)
+        nvtx.range_pop()  # raw2alpha
 
         app_mask = weight > self.rayMarch_weight_thres
 
         if app_mask.any():
+            nvtx.range_push("appfeature_renderModule")
             app_features = self.compute_appfeature(xyz_sampled[app_mask])
             valid_rgbs = self.renderModule(xyz_sampled[app_mask], viewdirs[app_mask], app_features)
             rgb[app_mask] = valid_rgbs
+            nvtx.range_pop()  # appfeature_renderModule
 
+        nvtx.range_push("accumulate_rgb")
         acc_map = torch.sum(weight, -1)
         rgb_map = torch.sum(weight[..., None] * rgb, -2)
-
         if white_bg or (is_train and torch.rand((1,))<0.5):
             rgb_map = rgb_map + (1. - acc_map[..., None])
-
-        
         rgb_map = rgb_map.clamp(0,1)
+        nvtx.range_pop()  # accumulate_rgb
 
+        nvtx.range_push("depth_map")
         with torch.no_grad():
             depth_map = torch.sum(weight * z_vals, -1)
             depth_map = depth_map + (1. - acc_map) * rays_chunk[..., -1]
-
+        nvtx.range_pop()  # depth_map
+        nvtx.range_pop()  # TensorBase.forward
         return rgb_map, depth_map # rgb, sigma, alpha, weight, bg_weight
 

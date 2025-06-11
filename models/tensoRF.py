@@ -139,14 +139,24 @@ class TensorVM(TensorBase):
 
 
 class TensorVMSplit(TensorBase):
+    densityfeature_call_count = 0
+    appfeature_call_count = 0
     def __init__(self, aabb, gridSize, device, **kargs):
         super(TensorVMSplit, self).__init__(aabb, gridSize, device, **kargs)
 
 
     def init_svd_volume(self, res, device):
+        nvtx.range_push("init_svd_volume")
+        nvtx.range_push("init_density_plane_line")
         self.density_plane, self.density_line = self.init_one_svd(self.density_n_comp, self.gridSize, 0.1, device)
+        nvtx.range_pop()
+        nvtx.range_push("init_app_plane_line")
         self.app_plane, self.app_line = self.init_one_svd(self.app_n_comp, self.gridSize, 0.1, device)
+        nvtx.range_pop()
+        nvtx.range_push("init_basis_mat")
         self.basis_mat = torch.nn.Linear(sum(self.app_n_comp), self.app_dim, bias=False).to(device)
+        nvtx.range_pop()
+        nvtx.range_pop()
 
 
     def init_one_svd(self, n_component, gridSize, scale, device):
@@ -230,6 +240,8 @@ class TensorVMSplit(TensorBase):
     '''
 
     def compute_densityfeature(self, xyz_sampled):
+        TensorVMSplit.densityfeature_call_count += 1
+        torch.cuda.synchronize()
         nvtx.range_push("compute_densityfeature")
         # plane + line basis
         coordinate_plane = torch.stack((xyz_sampled[..., self.matMode[0]], xyz_sampled[..., self.matMode[1]], xyz_sampled[..., self.matMode[2]])).detach().view(3, -1, 1, 2)
@@ -239,35 +251,38 @@ class TensorVMSplit(TensorBase):
         sigma_feature = torch.zeros((xyz_sampled.shape[0],), device=xyz_sampled.device)
         for idx_plane in range(len(self.density_plane)):
             nvtx.range_push(f"grid_sample_density_plane[{idx_plane}]")
-            plane_coef_point = grid_sample_cuda.forward(self.density_plane[idx_plane], coordinate_plane[[idx_plane]],
-                                                        True).view(-1, *xyz_sampled.shape[:1])
+            # plane_coef_point = grid_sample_cuda.forward(self.density_plane[idx_plane], coordinate_plane[[idx_plane]], True).view(-1, *xyz_sampled.shape[:1])
+            plane_coef_point = F.grid_sample(self.density_plane[idx_plane], coordinate_plane[[idx_plane]], align_corners=True).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
             nvtx.range_push(f"grid_sample_density_line[{idx_plane}]")
-            line_coef_point = grid_sample_cuda.forward(self.density_line[idx_plane], coordinate_line[[idx_plane]],
-                                                       True).view(-1, *xyz_sampled.shape[:1])
+            # line_coef_point = grid_sample_cuda.forward(self.density_line[idx_plane], coordinate_line[[idx_plane]], True).view(-1, *xyz_sampled.shape[:1])
+            line_coef_point = F.grid_sample(self.density_line[idx_plane], coordinate_line[[idx_plane]], align_corners=True).view(-1, *xyz_sampled.shape[:1])
             nvtx.range_pop()
             nvtx.range_push("combine_density_features")
             sigma_feature = sigma_feature + torch.sum(plane_coef_point * line_coef_point, dim=0)
             nvtx.range_pop()
         nvtx.range_pop()
+        torch.cuda.synchronize()
         return sigma_feature
 
     def compute_appfeature(self, xyz_sampled):
+        TensorVMSplit.appfeature_call_count += 1
+        torch.cuda.synchronize()
         nvtx.range_push("compute_appfeature")
         # plane + line basis
         coordinate_plane = torch.stack((xyz_sampled[..., self.matMode[0]], xyz_sampled[..., self.matMode[1]], xyz_sampled[..., self.matMode[2]])).detach().view(3, -1, 1, 2)
         coordinate_line = torch.stack((xyz_sampled[..., self.vecMode[0]], xyz_sampled[..., self.vecMode[1]], xyz_sampled[..., self.vecMode[2]]))
         coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2)
 
-        plane_coef_point,line_coef_point = [],[]
+        plane_coef_point, line_coef_point = [], []
         for idx_plane in range(len(self.app_plane)):
             nvtx.range_push(f"grid_sample_app_plane[{idx_plane}]")
-            plane_coef_point.append(F.grid_sample(self.app_plane[idx_plane], coordinate_plane[[idx_plane]],
-                                                align_corners=True).view(-1, *xyz_sampled.shape[:1]))
+            # plane_coef_point.append(grid_sample_cuda.forward(self.app_plane[idx_plane], coordinate_plane[[idx_plane]], True).view(-1, *xyz_sampled.shape[:1]))
+            plane_coef_point.append(F.grid_sample(self.app_plane[idx_plane], coordinate_plane[[idx_plane]], align_corners=True).view(-1, *xyz_sampled.shape[:1]))
             nvtx.range_pop()
             nvtx.range_push(f"grid_sample_app_line[{idx_plane}]")
-            line_coef_point.append(F.grid_sample(self.app_line[idx_plane], coordinate_line[[idx_plane]],
-                                            align_corners=True).view(-1, *xyz_sampled.shape[:1]))
+            # line_coef_point.append(grid_sample_cuda.forward(self.app_line[idx_plane], coordinate_line[[idx_plane]], True).view(-1, *xyz_sampled.shape[:1]))
+            line_coef_point.append(F.grid_sample(self.app_line[idx_plane], coordinate_line[[idx_plane]], align_corners=True).view(-1, *xyz_sampled.shape[:1]))
             nvtx.range_pop()
         plane_coef_point, line_coef_point = torch.cat(plane_coef_point), torch.cat(line_coef_point)
 
@@ -275,6 +290,7 @@ class TensorVMSplit(TensorBase):
         result = self.basis_mat((plane_coef_point * line_coef_point).T)
         nvtx.range_pop()
         nvtx.range_pop()
+        torch.cuda.synchronize()
         return result
 
 
@@ -340,6 +356,11 @@ class TensorVMSplit(TensorBase):
         newSize = b_r - t_l
         self.aabb = new_aabb
         self.update_stepSize((newSize[0], newSize[1], newSize[2]))
+
+    @classmethod
+    def print_call_counts(cls):
+        print(f"TensorVMSplit densityfeature calls: {cls.densityfeature_call_count}")
+        print(f"TensorVMSplit appfeature calls: {cls.appfeature_call_count}")
 
 
 class TensorCP(TensorBase):

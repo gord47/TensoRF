@@ -14,18 +14,27 @@ def OctreeRender_trilinear_fast(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray
     for chunk_idx in range(N_rays_all // chunk + int(N_rays_all % chunk > 0)):
         nvtx.range_push(f"Chunk {chunk_idx} of {N_rays_all // chunk + int(N_rays_all % chunk > 0)}")
         rays_chunk = rays[chunk_idx * chunk:(chunk_idx + 1) * chunk].to(device)
+        nvtx.range_push("to_device_done")
+        # This marker is to measure the time after moving rays_chunk to device
+        nvtx.range_pop()
         nvtx.range_push("Render rays")
         rgb_map, depth_map = tensorf(rays_chunk, is_train=is_train, white_bg=white_bg, ndc_ray=ndc_ray, N_samples=N_samples)
         nvtx.range_pop()
+        nvtx.range_push("append_outputs")
         rgbs.append(rgb_map)
         depth_maps.append(depth_map)
         nvtx.range_pop()
+        nvtx.range_pop()
+    nvtx.range_push("cat_outputs")
+    result = (torch.cat(rgbs), None, torch.cat(depth_maps), None, None)
     nvtx.range_pop()
-    return torch.cat(rgbs), None, torch.cat(depth_maps), None, None
+    nvtx.range_pop()
+    return result
 
 @torch.no_grad()
 def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
                white_bg=False, ndc_ray=False, compute_extra_metrics=True, device='cuda'):
+    nvtx.range_push("evaluation_loop")
     PSNRs, rgb_maps, depth_maps = [], [], []
     ssims,l_alex,l_vgg=[],[],[]
     os.makedirs(savePath, exist_ok=True)
@@ -68,17 +77,20 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
                 nvtx.range_pop()
 
         rgb_map = (rgb_map.numpy() * 255).astype('uint8')
-        # rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
         rgb_maps.append(rgb_map)
         depth_maps.append(depth_map)
         if savePath is not None:
+            nvtx.range_push("save_image")
             imageio.imwrite(f'{savePath}/{prtx}{idx:03d}.png', rgb_map)
             rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
             imageio.imwrite(f'{savePath}/rgbd/{prtx}{idx:03d}.png', rgb_map)
+            nvtx.range_pop()
         nvtx.range_pop()
 
+    nvtx.range_push("save_video")
     imageio.mimwrite(f'{savePath}/{prtx}video.mp4', np.stack(rgb_maps), fps=30, quality=10)
     imageio.mimwrite(f'{savePath}/{prtx}depthvideo.mp4', np.stack(depth_maps), fps=30, quality=10)
+    nvtx.range_pop()
 
     if PSNRs:
         psnr = np.mean(np.asarray(PSNRs))
@@ -89,13 +101,13 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
             np.savetxt(f'{savePath}/{prtx}mean.txt', np.asarray([psnr, ssim, l_a, l_v]))
         else:
             np.savetxt(f'{savePath}/{prtx}mean.txt', np.asarray([psnr]))
-
-
+    nvtx.range_pop()
     return PSNRs
 
 @torch.no_grad()
 def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
                     white_bg=False, ndc_ray=False, compute_extra_metrics=True, device='cuda'):
+    nvtx.range_push("evaluation_path_loop")
     PSNRs, rgb_maps, depth_maps = [], [], []
     ssims,l_alex,l_vgg=[],[],[]
     os.makedirs(savePath, exist_ok=True)
@@ -108,7 +120,7 @@ def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5
 
     near_far = test_dataset.near_far
     for idx, c2w in tqdm(enumerate(c2ws)):
-
+        nvtx.range_push(f"EvalPath idx {idx}")
         W, H = test_dataset.img_wh
 
         c2w = torch.FloatTensor(c2w)
@@ -126,16 +138,20 @@ def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5
         depth_map, _ = visualize_depth_numpy(depth_map.numpy(),near_far)
 
         rgb_map = (rgb_map.numpy() * 255).astype('uint8')
-        # rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
         rgb_maps.append(rgb_map)
         depth_maps.append(depth_map)
         if savePath is not None:
+            nvtx.range_push("save_image")
             imageio.imwrite(f'{savePath}/{prtx}{idx:03d}.png', rgb_map)
             rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
             imageio.imwrite(f'{savePath}/rgbd/{prtx}{idx:03d}.png', rgb_map)
+            nvtx.range_pop()
+        nvtx.range_pop()
 
+    nvtx.range_push("save_video")
     imageio.mimwrite(f'{savePath}/{prtx}video.mp4', np.stack(rgb_maps), fps=30, quality=8)
     imageio.mimwrite(f'{savePath}/{prtx}depthvideo.mp4', np.stack(depth_maps), fps=30, quality=8)
+    nvtx.range_pop()
 
     if PSNRs:
         psnr = np.mean(np.asarray(PSNRs))
@@ -146,7 +162,6 @@ def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5
             np.savetxt(f'{savePath}/{prtx}mean.txt', np.asarray([psnr, ssim, l_a, l_v]))
         else:
             np.savetxt(f'{savePath}/{prtx}mean.txt', np.asarray([psnr]))
-
-
+    nvtx.range_pop()
     return PSNRs
 
