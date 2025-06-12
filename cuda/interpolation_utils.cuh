@@ -3,9 +3,10 @@
 
 __device__ __forceinline__ float bilinear_interp(const float *plane, float x, float y, int H, int W)
 {
-    float fx = x;
-    float fy = y;
-    if (fx < 0 || fx > W-1 || fy < 0 || fy > H-1)
+    // Normalize x,y from [-1,1] to [0,W/H-1] range
+    float fx = (x + 1.0f) * 0.5f * (W - 1);
+    float fy = (y + 1.0f) * 0.5f * (H - 1);
+    if (fx < 0 || fx >= W || fy < 0 || fy >= H)
         return 0.0f;
     int x0 = static_cast<int>(floorf(fx));
     int x1 = min(x0 + 1, W - 1);
@@ -28,9 +29,13 @@ __device__ __forceinline__ float bilinear_interp(const float *plane, float x, fl
 
 __device__ __forceinline__ float linear_interp(const float *line, float z, int L)
 {
-    // z = fmaxf(0.0f, fminf(z * 0.5f + 0.5f, 1.0f));
-    // float fz = z * (L - 1);
-    float fz = fminf(fmaxf(z, 0.0f), L - 1.0f);
+    // Normalize z from [-1,1] to [0,L-1] range to match PyTorch grid_sample
+    float fz = (z + 1.0f) * 0.5f * (L - 1);
+    
+    // Out-of-bounds check to match PyTorch grid_sample padding_mode='zeros'
+    if (fz < 0.f || fz >= L)
+        return 0.0f;
+        
     int z0 = static_cast<int>(floorf(fz)), z1 = min(z0 + 1, L - 1);
     float dz = fz - z0;
     float v0 = line[z0], v1 = line[z1];

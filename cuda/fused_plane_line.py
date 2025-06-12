@@ -32,6 +32,7 @@ fused_plane_line = load(
     verbose=True
 )
 forward = fused_plane_line.forward
+forward_flexible = fused_plane_line.forward_flexible
 forward_single = fused_plane_line.forward_single
 
 def forward_split(planes, lines, coords_plane, coords_line):

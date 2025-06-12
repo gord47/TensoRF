@@ -1,7 +1,7 @@
 
 dataset_name = blender
 datadir = ./data/nerf_synthetic/lego
-expname =  tensorf_lego_VM_cuda_5itr
+expname =  tensorf_VM_fused_cuda_5itr
 basedir = ./log
 
 n_iters = 15000
@@ -17,7 +17,7 @@ vis_every = 10000
 
 render_test = 1
 render_only = 1
-ckpt = log/tensorf_lego_VM.th
+ckpt = checkpoint/tensorf_lego_VM_15k.th
 n_lamb_sigma = [16,16,16]
 n_lamb_sh = [48,48,48]
 model_name = TensorVMSplit
