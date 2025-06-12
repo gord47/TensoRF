@@ -80,7 +80,7 @@ def render_test(args):
         os.makedirs(f'{logfolder}/{args.expname}/imgs_test_all', exist_ok=True)
         # Limit N_vis to 5 for fast experimentation, and disable compute_extra_metrics
         evaluation(test_dataset, tensorf, args, renderer, f'{logfolder}/{args.expname}/imgs_test_all/',
-                   N_vis=5, N_samples=-1, white_bg=white_bg, ndc_ray=ndc_ray, device=device, compute_extra_metrics=False)
+                   N_vis=-1, N_samples=-1, white_bg=white_bg, ndc_ray=ndc_ray, device=device, compute_extra_metrics=False)
         # Print TensorVMSplit call counts if used
         if isinstance(tensorf, TensorVMSplit):
             TensorVMSplit.print_call_counts()
@@ -90,7 +90,7 @@ def render_test(args):
         os.makedirs(f'{logfolder}/{args.expname}/imgs_path_all', exist_ok=True)
         # Limit N_vis to 5 for fast experimentation, and disable compute_extra_metrics
         evaluation_path(test_dataset, tensorf, c2ws, renderer, f'{logfolder}/{args.expname}/imgs_path_all/',
-                        N_vis=5, N_samples=-1, white_bg=white_bg, ndc_ray=ndc_ray, device=device, compute_extra_metrics=False)
+                        N_vis=-1, N_samples=-1, white_bg=white_bg, ndc_ray=ndc_ray, device=device, compute_extra_metrics=False)
 
 def reconstruction(args):
     # init dataset
